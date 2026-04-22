@@ -1,0 +1,2776 @@
+if (is_osx) view.windowBlurbehind = #light;
+stdout.println("current platform:", OS);
+stdout.println("is_xfce: ", is_xfce);
+
+// See default height in common.tis `msgbox()`.
+const msgbox_default_height = 180;
+const incoming_only_width = 180;
+
+const outgoing_only = handler.is_outgoing_only();
+const incoming_only = handler.is_incoming_only();
+const disable_installation = handler.is_disable_installation();
+const disable_account = handler.is_disable_account();
+const disable_settings = handler.is_disable_settings();
+const is_custom_client = handler.is_custom_client();
+const disable_ab = handler.is_disable_ab();
+const hide_server_settings = handler.get_builtin_option("hide-server-settings") == "Y";
+const hide_proxy_settings = handler.get_builtin_option("hide-proxy-settings") == "Y";
+const hide_websocket_settings = handler.get_builtin_option("hide-websocket-settings") == "Y";
+const disable_change_permanent_password = handler.get_builtin_option("disable-change-permanent-password") == "Y";
+const disable_change_id = handler.get_builtin_option("disable-change-id") == "Y";
+
+// html min-width, min-height not working on mac, below works for all
+if (incoming_only) {
+  view.windowMinSize = (scaleIt(incoming_only_width), scaleIt((handler.is_installed() || disable_installation) ? 300 : 390));
+} else {
+  view.windowMinSize = (scaleIt(560), scaleIt(300));
+}
+
+var app;
+var tmp = handler.get_connect_status();
+var connect_status = tmp[0];
+var service_stopped = handler.get_option("stop-service") == "Y";
+var disable_udp = handler.get_option("disable-udp") == "Y";
+var using_public_server = handler.using_public_server();
+var software_update_url = "";
+var key_confirmed = tmp[1];
+var system_error = "";
+
+const default_option_lang = is_custom_client ? 'default' : '';
+const default_option_yes = is_custom_client ? 'Y' : '';
+const default_option_no = is_custom_client ? 'N' : '';
+const default_option_whitelist = is_custom_client ? ',' : '';
+const default_option_approve_mode = is_custom_client ? 'password-click' : '';
+
+const grey_text_style = "color:#888;";
+
+var svg_menu = <svg #menu viewBox="0 0 512 512">
+	<circle cx="256" cy="256" r="64"/>
+	<circle cx="256" cy="448" r="64"/>
+	<circle cx="256" cy="64" r="64"/>
+</svg>;
+var svg_refresh_password = <svg #refresh-password xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v6h6M2.66 15.57a10 10 0 1 0 .57-8.38"/></svg>;
+var svg_service_nodes = <svg #service-nodes xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v4"/><path d="M12 16v4"/><path d="M4 12h4"/><path d="M16 12h4"/><circle cx="12" cy="12" r="3.2"/><circle cx="12" cy="4" r="2.2"/><circle cx="12" cy="20" r="2.2"/><circle cx="4" cy="12" r="2.2"/><circle cx="20" cy="12" r="2.2"/></svg>;
+var svg_dialog_close = <svg #dialog-close xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>;
+var svg_dialog_info = <svg #dialog-info xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 10v5"/><path d="M12 7.5h.01"/></svg>;
+
+var my_id = handler.get_id();
+function get_id() {
+  my_id = handler.get_id();
+  return my_id;
+}
+
+function get_msgbox_width(width=500) {
+    if (incoming_only) {
+        var maxw = scaleIt(incoming_only_width);
+        if (width > maxw) width = maxw;
+    }
+    return width;
+}
+
+class ConnectStatus: Reactor.Component {
+    function render() {
+        return
+            <div .connect-status>
+                <span class={"connect-status-icon connect-status" + (service_stopped ? 0 : connect_status)} />
+                {this.getConnectStatusStr()}
+                {service_stopped ? <span .link #start-service>{translate('Start service')}</span> : ""}
+            </div>;
+    }
+
+    function getConnectStatusStr() {
+        if (service_stopped) {
+            return translate("Service is not running");
+        } else if (connect_status == -1) {
+            return translate('not_ready_status');
+        } else if (connect_status == 0) {
+            return translate('connecting_status');
+        }
+        if (!handler.using_public_server()) return translate('Ready');
+        return <span>{translate("Ready")}, <span .link #setup-server>{translate("setup_server_tip")}</span></span>;
+    }
+
+    event click $(#start-service) () {
+        handler.set_option("stop-service", "");
+    }
+
+    event click $(#setup-server) () {
+        handler.open_url("https://rustdesk.com/blog/id-relay-set/");
+    }
+}
+
+function createNewConnect(id, type) {
+    var outgoingLockReason = get_outgoing_control_lock_reason();
+    if (outgoingLockReason) {
+        msgbox("custom-error", "Control Console", outgoingLockReason);
+        return;
+    }
+    id = id.replace(/\s/g, "");
+    app.remote_id.value = formatId(id);
+    if (!id) return;
+    var old_id = id;
+    id = handler.handle_relay_id(id);
+    var force_relay = old_id != id; 
+    if (id == my_id) {
+        msgbox("custom-error", "Error", "You cannot connect to your own computer");
+        return;
+    }
+    handler.set_remote_id(id);
+    handler.new_remote(id, type, force_relay);
+}
+
+class ShareRdp: Reactor.Component {
+    function render() {
+        var rdp_shared_string = translate("Enable RDP session sharing");
+        var cls = handler.is_share_rdp()  ? "selected" : "line-through";
+        return <li class={cls}><span>{svg_checkmark}</span>{rdp_shared_string}</li>;
+    }
+    
+    function onClick() {
+        handler.set_share_rdp(!handler.is_share_rdp());
+        this.update();
+    }
+}
+
+var direct_server;
+class DirectServer: Reactor.Component {
+    function this() {
+        direct_server = this;
+    }
+
+    function render() {
+        var text = translate("Enable direct IP access");
+        var enabled = handler.get_option("direct-server") == "Y";
+        var cls = enabled ? "selected" : "line-through";
+        return <li class={cls}><span>{svg_checkmark}</span>{text}{enabled && <EditDirectAccessPort />}</li>;
+    }
+    
+    function onClick() {
+        if (is_edit_rdp_port) {
+            is_edit_rdp_port = false;
+            return;
+        }
+        handler.set_option("direct-server", handler.get_option("direct-server") == "Y" ? default_option_no : "Y");
+        this.update();
+    }
+}
+
+var myIdMenu;
+var audioInputMenu;
+class AudioInputs: Reactor.Component {
+    function this() {
+        audioInputMenu = this;
+    }
+
+    function render() {
+        if (!this.show) return <li />;
+        var inputs = handler.get_sound_inputs();
+        if (is_win) inputs = ["System Sound"].concat(inputs);
+        if (!inputs.length) return <li style="display:hidden" />;
+        var me = this;
+        self.timer(1ms, function() { me.toggleMenuState() });
+        return <li>{translate('Audio Input')}
+            <menu #audio-input key={inputs.length}>
+                <li #enable-audio><span>{svg_checkmark}</span>{translate("Mute")}</li>
+                <div .separator />
+                {inputs.map(function(name) {
+                return <li id={name}><span>{svg_checkmark}</span>{translate(name)}</li>;
+                })}
+            </menu>
+        </li>;
+    }
+
+    function get_default() {
+        if (is_win) return "System Sound";
+        return "";
+    }
+
+    function get_value() {
+        return handler.get_option("audio-input") || this.get_default();
+    }
+
+    function toggleMenuState() {
+        var el = this.$(li#enable-audio);
+        var enabled = handler.get_option(el.id) != "N";
+        el.attributes.toggleClass("selected", !enabled);
+        var is_opt_fixed = handler.is_option_fixed("enable-audio");
+        if (disable_settings || is_opt_fixed) {
+            el.state.disabled = true;
+        }
+        var v = this.get_value();
+        for (var el in this.$$(menu#audio-input>li)) {
+            if (el.id == 'enable-audio') continue;
+            var selected = el.id == v;
+            el.attributes.toggleClass("selected", selected);
+        }
+    }
+
+    event click $(menu#audio-input>li) (_, me) {
+        if (me.state.disabled) return;
+        var v = me.id;
+        if (v == 'enable-audio') {
+            handler.set_option(v, handler.get_option(v) != 'N' ? 'N' : default_option_yes);
+        } else {
+          if (v == this.get_value()) return;
+          if (v == this.get_default()) v = "";
+          handler.set_option("audio-input", v);
+        }
+        this.toggleMenuState();
+    }
+};
+
+class Languages: Reactor.Component {
+    function render() {
+        var langs = JSON.parse(handler.get_langs());
+        var me = this;
+        self.timer(1ms, function() { me.toggleMenuState() });
+        return <li>{translate('Language')}
+            <menu #languages key={langs.length}>
+                <li id="default"><span>{svg_checkmark}</span>Default</li>
+                <div .separator />
+                {langs.map(function(lang) {
+                return <li id={lang[0]}><span>{svg_checkmark}</span>{lang[1]}</li>;
+                })}
+            </menu>
+        </li>;
+    }
+
+
+    function toggleMenuState() {
+        var cur = handler.get_local_option("lang") || "default";
+        var is_opt_fixed = handler.is_option_fixed("lang");
+        for (var el in this.$$(menu#languages>li)) {
+            var selected = cur == el.id;
+            el.attributes.toggleClass("selected", selected);
+            if (is_opt_fixed) {
+                el.state.disabled = true;
+            }
+        }
+    }
+
+    event click $(menu#languages>li) (_, me) {
+        if (me.state.disabled) return;
+        var v = me.id;
+        if (v == "default") v = default_option_lang;
+        handler.set_local_option("lang", v);
+        app.update();
+        this.toggleMenuState();
+    }
+}
+
+var enhancementsMenu;
+class Enhancements: Reactor.Component {
+    function this() {
+        enhancementsMenu = this;
+    }
+
+    function render() {
+        var has_hwcodec = handler.has_hwcodec();
+        var has_vram = handler.has_vram();
+        var support_remove_wallpaper = handler.support_remove_wallpaper();
+        var me = this;
+        self.timer(1ms, function() { me.toggleMenuState() });
+        return <li>{translate('Enhancements')}
+            <menu #enhancements-menu>
+                {(has_hwcodec || has_vram) ? <li #enable-hwcodec><span>{svg_checkmark}</span>{translate("Enable hardware codec")}</li> : ""}
+                <li #enable-abr><span>{svg_checkmark}</span>{translate("Adaptive bitrate")} (beta)</li>
+                <li #screen-recording>{translate("Recording")}</li>
+                {support_remove_wallpaper ? <li #allow-remove-wallpaper><span>{svg_checkmark}</span>{translate("Remove wallpaper during incoming sessions")}</li> : ""}
+                <li #keep-awake-during-incoming-sessions><span>{svg_checkmark}</span>{translate("keep-awake-during-incoming-sessions-label")}</li>
+            </menu>
+        </li>;
+    }
+
+    function toggleMenuState() {
+        for (var el in $$(menu#enhancements-menu>li)) {
+            if (el.id && el.id.indexOf("enable-") == 0) {
+                var enabled = handler.get_option(el.id) != "N";
+                el.attributes.toggleClass("selected", enabled);
+                var is_opt_fixed = handler.is_option_fixed(el.id);
+                if (is_opt_fixed) {
+                    el.state.disabled = true;
+                }
+            } else if (el.id && el.id.indexOf("allow-") == 0) {
+                var enabled = handler.get_option(el.id) == "Y";
+                el.attributes.toggleClass("selected", enabled);
+                var is_opt_fixed = handler.is_option_fixed(el.id);
+                if (is_opt_fixed) {
+                    el.state.disabled = true;
+                }
+            } else if (el.id == "keep-awake-during-incoming-sessions") {
+                var enabled = handler.get_option(el.id) != "N";
+                el.attributes.toggleClass("selected", enabled);
+                var is_opt_fixed = handler.is_option_fixed(el.id);
+                if (is_opt_fixed) {
+                    el.state.disabled = true;
+                }
+            }
+        }
+
+    }
+
+    event click $(menu#enhancements-menu>li) (_, me) {
+        if (me.state.disabled) return;
+        var v = me.id;
+        if (v.indexOf("enable-") == 0) {
+            var set_value = handler.get_option(v) != 'N' ? 'N' : default_option_yes;
+            handler.set_option(v, set_value);
+            if (v == "enable-hwcodec" && set_value != 'N') {
+                handler.check_hwcodec();
+            }
+        } else if (v.indexOf("allow-") == 0) {
+            handler.set_option(v, handler.get_option(v) == 'Y' ? default_option_no : 'Y');
+        } else if (v == 'keep-awake-during-incoming-sessions') {
+            handler.set_option(v, handler.get_option(v) != 'N' ? 'N' : default_option_yes);
+        } else if (v == 'screen-recording') {
+            var show_root_dir = is_win && handler.is_installed();
+            var user_dir = handler.video_save_directory(false);
+            var root_dir = show_root_dir ? handler.video_save_directory(true) : "";
+            var ts0 = handler.get_option("enable-record-session") != 'N' ? { checked: true } : {};
+            var ts1 = handler.get_option("allow-auto-record-incoming") == 'Y' ? { checked: true } : {};
+            var ts2 = handler.get_local_option("allow-auto-record-outgoing") == 'Y' ? { checked: true } : {};
+            var is_opt_fixed_enable_record = handler.is_option_fixed("enable-record-session");
+            var is_opt_fixed_auto_incoming = handler.is_option_fixed("allow-auto-record-incoming");
+            var is_opt_fixed_auto_outgoing = handler.is_option_fixed("allow-auto-record-outgoing");
+            var is_opt_fixed_video_dir = handler.is_option_fixed("video-save-directory");
+            if (is_opt_fixed_enable_record) { ts0.disabled = true; ts0.style = grey_text_style; }
+            if (is_opt_fixed_auto_incoming) { ts1.disabled = true; ts1.style = grey_text_style; }
+            if (is_opt_fixed_auto_outgoing) { ts2.disabled = true; ts2.style = grey_text_style; }
+            msgbox("custom-recording", translate('Recording'),
+                <div .form>
+                    <div><button|checkbox(enable_record_session) {ts0} .wrap-text>{translate('Enable recording session')}</button></div>
+                    <div><button|checkbox(auto_record_incoming) {ts1} .wrap-text>{translate('Automatically record incoming sessions')}</button></div>
+                    <div><button|checkbox(auto_record_outgoing) {ts2} .wrap-text>{translate('Automatically record outgoing sessions')}</button></div>
+                    <div class={is_opt_fixed_video_dir ? "grey-text" : ""}>
+                        {show_root_dir ? <div style="word-wrap:break-word"><span>{translate("Incoming")}:&nbsp;&nbsp;</span><span>{root_dir}</span></div> : ""}
+                        <div style="word-wrap:break-word"><span>{translate(show_root_dir ? "Outgoing" : "Directory")}:&nbsp;&nbsp;</span><span #folderPath>{user_dir}</span></div>
+                        {is_opt_fixed_video_dir ? "" : <div> <button #select_directory .link>{translate('Change')}</button> </div>}
+                    </div>
+                </div>
+                , "", function(res=null) {
+                if (!res) return;
+                if (!is_opt_fixed_enable_record) handler.set_option("enable-record-session", res.enable_record_session ? default_option_yes : 'N');
+                if (!is_opt_fixed_auto_incoming) handler.set_option("allow-auto-record-incoming", res.auto_record_incoming ? 'Y' : default_option_no);
+                if (!is_opt_fixed_auto_outgoing) handler.set_local_option("allow-auto-record-outgoing", res.auto_record_outgoing ? 'Y' : default_option_no);
+                if (!is_opt_fixed_video_dir) handler.set_local_option("video-save-directory", $(#folderPath).text);
+            }, msgbox_default_height, get_msgbox_width());
+        }
+        this.toggleMenuState();
+    }
+}
+
+function getUserName() {
+    try {
+        return JSON.parse(handler.get_local_option("user_info")).name;
+    } catch(e) {}
+    return '';
+}
+
+function getAccountLabelWithHandle() {
+    try {
+        var user = JSON.parse(handler.get_local_option("user_info"));
+        var username = (user.name || '').trim();
+        if (!username) {
+            return '';
+        }
+        var displayName = (user.display_name || '').trim();
+        if (!displayName || displayName == username) {
+            return username;
+        }
+        return displayName + " (@" + username + ")";
+    } catch(e) {}
+    return '';
+}
+
+function getServiceNodeState() {
+    try {
+        return handler.get_service_nodes() || { mode: 'auto', nodes: [], poolConfigured: false };
+    } catch(e) {}
+    return { mode: 'auto', nodes: [], poolConfigured: false };
+}
+
+function getServiceNodeLatencyLabel(node) {
+    if (!node) return '-';
+    if (node.isOnline && node.latencyMs > 0) {
+        return node.latencyMs + " ms";
+    }
+    if (node.latencyMs < 0) {
+        return translate("Offline");
+    }
+    return translate("Detecting");
+}
+
+function get_runtime_service_nodes() {
+    try {
+        var raw = (handler.get_local_option("rdx-runtime-service-nodes") || '').trim();
+        if (!raw) return [];
+        var items = JSON.parse(raw);
+        return items && items.length ? items : [];
+    } catch(e) {}
+    return [];
+}
+
+function get_runtime_client_options() {
+    try {
+        var raw = (handler.get_local_option("rdx-runtime-client-options") || '').trim();
+        if (!raw) return {};
+        return JSON.parse(raw) || {};
+    } catch(e) {}
+    return {};
+}
+
+function has_runtime_service_nodes() {
+    return get_runtime_service_nodes().length > 0;
+}
+
+function get_server_settings_label() {
+    if (has_runtime_service_nodes()) {
+        return translate('Service Nodes');
+    }
+    if (getServiceNodeState().poolConfigured) {
+        return "Relay Nodes";
+    }
+    return translate('ID/Relay Server');
+}
+
+function get_runtime_node_state() {
+    return {
+        selectedCode: (handler.get_local_option("rdx-runtime-selected-node-code") || '').trim(),
+        manualCode: (handler.get_local_option("rdx-runtime-manual-node-code") || '').trim(),
+        allowManualSelection: handler.get_local_option("rdx-runtime-allow-manual-selection") == "Y",
+        autoSelectMode: (handler.get_local_option("rdx-runtime-auto-select-mode") || '').trim(),
+        selectedLatency: (handler.get_local_option("rdx-runtime-selected-node-latency") || '').trim(),
+        profileName: (handler.get_local_option("rdx-runtime-profile-name") || '').trim(),
+        packageCode: (handler.get_local_option("rdx-runtime-package-code") || '').trim(),
+        tenantName: (handler.get_local_option("rdx-runtime-tenant-name") || '').trim(),
+        tenantStatus: (handler.get_local_option("rdx-runtime-tenant-status") || '').trim(),
+        billingState: (handler.get_local_option("rdx-runtime-billing-state") || '').trim(),
+        expiresAt: (handler.get_local_option("rdx-runtime-expires-at") || '').trim(),
+        serverLockMode: (handler.get_local_option("rdx-runtime-server-lock-mode") || '').trim(),
+        deviceEnabled: handler.get_local_option("rdx-runtime-device-enabled") != "N",
+        deviceOwner: (handler.get_local_option("rdx-runtime-device-owner") || '').trim()
+    };
+}
+
+const RUNTIME_CONTROL_REFRESH_INTERVAL_MS = 60 * 1000;
+var runtime_control_refresh_at = 0;
+var runtime_control_refresh_inflight = false;
+
+function get_runtime_access_lock_reason() {
+    if (!is_runtime_account_session()) return "";
+    var state = get_runtime_node_state();
+    if (!state.deviceEnabled) {
+        return "This device is disabled by the control console.";
+    }
+    if (state.tenantStatus == "suspended" || state.billingState == "suspended") {
+        return "This tenant is suspended by the control console.";
+    }
+    return "";
+}
+
+function get_control_login_required_reason() {
+    if (is_runtime_account_session()) return "";
+    return "Sign in to the control console before starting remote control or file transfer.";
+}
+
+function get_outgoing_control_lock_reason() {
+    return get_control_login_required_reason() || get_runtime_access_lock_reason();
+}
+
+function get_outgoing_control_hint() {
+    var lockReason = get_outgoing_control_lock_reason();
+    if (lockReason) return lockReason;
+    var runtimeHint = get_runtime_connect_hint();
+    return runtimeHint || "Control console login is active.";
+}
+
+function get_runtime_connect_hint() {
+    if (!is_runtime_account_session()) return "";
+    var state = get_runtime_node_state();
+    var notes = [];
+    if (state.tenantName) notes.push(state.tenantName);
+    if (state.profileName) notes.push(state.profileName);
+    if (state.selectedCode) notes.push("Node " + state.selectedCode);
+    if (state.expiresAt) notes.push("Expires " + state.expiresAt);
+    if (state.deviceOwner) notes.push("Owner " + state.deviceOwner);
+    if (!notes.length) return "This client is managed by the control console.";
+    return notes.join(" · ");
+}
+
+function find_runtime_service_node(nodes, code) {
+    code = (code || '').trim().toLowerCase();
+    if (!code) return null;
+    for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        if (((node.code || '').trim().toLowerCase()) == code) {
+            return node;
+        }
+    }
+    return null;
+}
+
+var active_service_nodes_dialog = null;
+
+function normalize_service_node_key(value) {
+    return (value || '').trim().toLowerCase();
+}
+
+function normalize_runtime_auto_select_mode(mode) {
+    mode = normalize_service_node_key(mode);
+    if (!mode) return "latency-first";
+    if (mode.indexOf("primary") >= 0 || mode.indexOf("weight") >= 0 || mode.indexOf("health") >= 0 || mode.indexOf("priority") >= 0 || mode.indexOf("主用") >= 0 || mode.indexOf("健康") >= 0 || mode.indexOf("权重") >= 0) {
+        return "score-first";
+    }
+    return "latency-first";
+}
+
+function get_runtime_auto_select_mode_label(mode) {
+    mode = (mode || '').trim();
+    if (!mode) return "Auto · Lowest latency";
+    return "Auto · " + mode;
+}
+
+function format_latency_text(latency) {
+    latency = ('' + (latency || '')).trim();
+    if (!latency) return '';
+    return latency.indexOf('ms') >= 0 ? latency : latency + " ms";
+}
+
+function get_service_node_probe_map(nodes=null) {
+    var map = {};
+    nodes = nodes || (getServiceNodeState().nodes || []);
+    for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        var host = normalize_service_node_key(node.host);
+        if (host) {
+            map[host] = node;
+        }
+    }
+    return map;
+}
+
+function get_service_node_probe(host, probeMap=null) {
+    return (probeMap || get_service_node_probe_map())[normalize_service_node_key(host)] || null;
+}
+
+function get_service_node_latency_value(node) {
+    var latency = Number(node && node.latencyMs || 0);
+    return latency > 0 ? latency : 0;
+}
+
+function get_service_node_latency_label(node, fallback="") {
+    if (node) {
+        return getServiceNodeLatencyLabel(node);
+    }
+    fallback = format_latency_text(fallback);
+    return fallback || translate("Detecting");
+}
+
+function get_runtime_service_node_probe_host(node) {
+    if (!node) return "";
+    var probeHost = (node.probeHost || '').trim();
+    if (probeHost) return probeHost;
+    var relayServer = (node.relayServer || '').trim();
+    if (relayServer) {
+        var parts = relayServer.split(':');
+        if (parts.length > 1) {
+            parts[parts.length - 1] = "21116";
+            return parts.join(':');
+        }
+        return relayServer;
+    }
+    var idServer = (node.idServer || '').trim();
+    if (idServer) return idServer;
+    return "";
+}
+
+function apply_runtime_fixed_access_config(data, configOptions) {
+    var fixedIdServer = ((data.fixedIdServer || handler.get_local_option("rdx-runtime-fixed-id-server")) || '').trim();
+    var fixedApiServer = ((data.fixedApiServer || handler.get_local_option("rdx-runtime-fixed-api-server")) || '').trim();
+    var fixedPublicKey = ((data.fixedPublicKey || handler.get_local_option("rdx-runtime-fixed-public-key")) || '').trim();
+
+    handler.set_local_option("rdx-runtime-fixed-id-server", fixedIdServer);
+    handler.set_local_option("rdx-runtime-fixed-api-server", fixedApiServer);
+    handler.set_local_option("rdx-runtime-fixed-public-key", fixedPublicKey);
+
+    if (fixedIdServer) {
+        configOptions["custom-rendezvous-server"] = fixedIdServer;
+    }
+    if (fixedApiServer) {
+        configOptions["api-server"] = fixedApiServer.toLowerCase();
+    }
+    if (fixedPublicKey) {
+        configOptions["key"] = fixedPublicKey;
+    }
+}
+
+function get_runtime_service_node_probe(node, probeMap=null) {
+    return get_service_node_probe(get_runtime_service_node_probe_host(node), probeMap);
+}
+
+function build_service_node_caption(parts) {
+    var values = [];
+    for (var i = 0; i < parts.length; ++i) {
+        var value = (parts[i] || '').trim();
+        if (value) values.push(value);
+    }
+    return values.join(" / ");
+}
+
+function choose_generic_recommended_node(nodes) {
+    if (!nodes || !nodes.length) return null;
+    var best = null;
+    var bestLatency = 0;
+    for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        var latency = get_service_node_latency_value(node);
+        if (node.isOnline && latency > 0 && (!best || latency < bestLatency)) {
+            best = node;
+            bestLatency = latency;
+        }
+    }
+    if (best) return best;
+    for (var i = 0; i < nodes.length; ++i) {
+        if (nodes[i].isCurrent) return nodes[i];
+    }
+    return nodes[0];
+}
+
+function choose_runtime_scored_node(nodes, probeMap=null) {
+    if (!nodes || !nodes.length) return null;
+    probeMap = probeMap || get_service_node_probe_map();
+    var best = null;
+    var bestScore = -1;
+    for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        var probe = get_runtime_service_node_probe(node, probeMap);
+        if (probe && probe.latencyMs < 0) continue;
+        var score = Number(node.healthScore || 0) * 1000 + Number(node.weight || 0);
+        if (!best || score > bestScore) {
+            best = node;
+            bestScore = score;
+        }
+    }
+    if (best) return best;
+    for (var i = 0; i < nodes.length; ++i) {
+        var fallbackNode = nodes[i];
+        var fallbackScore = Number(fallbackNode.healthScore || 0) * 1000 + Number(fallbackNode.weight || 0);
+        if (!best || fallbackScore > bestScore) {
+            best = fallbackNode;
+            bestScore = fallbackScore;
+        }
+    }
+    return best || nodes[0];
+}
+
+function build_runtime_service_nodes_dialog_model() {
+    var nodes = get_runtime_service_nodes();
+    if (!nodes.length) return null;
+    var state = get_runtime_node_state();
+    var selectedCode = normalize_service_node_key(state.selectedCode);
+    var manualCode = normalize_service_node_key(state.manualCode);
+    var probeMap = get_service_node_probe_map();
+    var current = find_runtime_service_node(nodes, state.selectedCode);
+    var recommended = choose_runtime_auto_node(nodes, probeMap, state.autoSelectMode);
+    var currentProbe = current ? get_runtime_service_node_probe(current, probeMap) : null;
+    var cards = [];
+
+    for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        var code = (node.code || '').trim();
+        var normalizedCode = normalize_service_node_key(code);
+        if (!normalizedCode) continue;
+        var probe = get_runtime_service_node_probe(node, probeMap);
+        var latencyLabel = get_service_node_latency_label(probe, selectedCode == normalizedCode ? state.selectedLatency : "");
+        var relayServer = (node.relayServer || '').trim();
+        var probeHost = get_runtime_service_node_probe_host(node);
+        var badges = [];
+        if (selectedCode == normalizedCode) badges.push("Current");
+        if (manualCode == normalizedCode) badges.push("Manual");
+        if (recommended && normalize_service_node_key(recommended.code) == normalizedCode) badges.push("Recommended");
+        if (node.manualSelectable === false) badges.push("Locked");
+        if (probe && probe.latencyMs < 0) badges.push("Offline");
+        cards.push({
+            key: normalizedCode,
+            title: (node.name || '').trim() || code,
+            subtitle: build_service_node_caption([(node.region || '').trim(), code ? "[" + code + "]" : ""]),
+            detail: build_service_node_caption([relayServer, probeHost != relayServer ? probeHost : ""]),
+            latencyLabel: latencyLabel,
+            selectable: state.allowManualSelection && node.manualSelectable !== false,
+            isCurrent: selectedCode == normalizedCode,
+            isManual: manualCode == normalizedCode,
+            isRecommended: !!(recommended && normalize_service_node_key(recommended.code) == normalizedCode),
+            isLocked: node.manualSelectable === false,
+            isOffline: !!(probe && probe.latencyMs < 0),
+            badges: badges
+        });
+    }
+
+    var subtitle = build_service_node_caption([state.tenantName, state.profileName || "Assigned service nodes"]);
+    var infoTitle = state.allowManualSelection ? "Click a node card to switch immediately." : "Node selection is managed by policy.";
+    var infoText = state.allowManualSelection
+        ? (manualCode ? "This client is pinned to a manual relay node until auto mode is restored." : "Auto mode will keep following the " + get_runtime_auto_select_mode_label(state.autoSelectMode) + " policy.")
+        : "Selection is view only for this client.";
+    if (!state.deviceEnabled) {
+        infoTitle = "This device is disabled by policy.";
+        infoText = "The control console currently marks this device as unavailable for new sessions.";
+    } else if (state.tenantStatus == "grace" || state.billingState == "overdue") {
+        infoTitle = "Tenant is in grace state.";
+        infoText = "The account can still receive configuration, but new sessions may be restricted if billing is not recovered.";
+    }
+    var footerHint = state.allowManualSelection
+        ? "Select a relay node card to apply it immediately. " + get_runtime_auto_select_mode_label(state.autoSelectMode) + " will be restored after switching back to auto."
+        : "Use Refresh to inspect the assigned nodes. " + get_runtime_auto_select_mode_label(state.autoSelectMode) + " remains active.";
+    var extraHints = [];
+    if (state.expiresAt) extraHints.push("Expires " + state.expiresAt);
+    if (state.serverLockMode) extraHints.push("Lock " + state.serverLockMode);
+    if (state.deviceOwner) extraHints.push("Owner " + state.deviceOwner);
+    if (extraHints.length) {
+        infoText += " " + extraHints.join(" · ") + ".";
+    }
+
+    return {
+        mode: "runtime",
+        title: get_server_settings_label(),
+        eyebrow: state.allowManualSelection ? "Managed profile" : "Policy assigned",
+        subtitle: subtitle || "Assigned service nodes",
+        currentLabel: current ? ((current.name || '').trim() || (current.code || '').trim()) : translate("Auto"),
+        currentMeta: current ? build_service_node_caption([state.tenantName, (current.region || '').trim(), (current.relayServer || '').trim()]) : "Waiting for assignment",
+        currentLatency: get_service_node_latency_label(currentProbe, state.selectedLatency),
+        currentModeLabel: manualCode ? "Manual" : get_runtime_auto_select_mode_label(state.autoSelectMode),
+        infoTitle: infoTitle,
+        infoText: infoText,
+        footerHint: footerHint,
+        restoreAutoVisible: state.allowManualSelection && !!manualCode,
+        nodes: cards
+    };
+}
+
+function build_generic_service_nodes_dialog_model() {
+    var state = getServiceNodeState();
+    if (!state.poolConfigured) return null;
+    var nodes = state.nodes || [];
+    var recommended = choose_generic_recommended_node(nodes);
+    var currentProbe = get_service_node_probe(state.currentNode, get_service_node_probe_map(nodes));
+    var currentLabel = state.mode == 'manual'
+        ? (state.manualNode || state.currentNode || "-")
+        : ((recommended && recommended.host) || translate("Auto"));
+    var currentLatency = state.mode == 'manual'
+        ? get_service_node_latency_label(currentProbe)
+        : get_service_node_latency_label(recommended || currentProbe);
+    var cards = [];
+
+    for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        var host = (node.host || '').trim();
+        if (!host) continue;
+        var badges = [];
+        if (node.isCurrent) badges.push("Current");
+        if (node.isManual || (state.mode == 'manual' && state.manualNode == host)) badges.push("Manual");
+        if (recommended && recommended.host == host) badges.push("Recommended");
+        if (node.latencyMs < 0) badges.push("Offline");
+        cards.push({
+            key: host,
+            title: host,
+            subtitle: node.isManual ? "Pinned relay node" : "Available relay node",
+            detail: state.mode == 'manual' && state.manualNode == host ? "Only relay routing is pinned on this client." : "The ID server stays fixed while relay latency is refreshed.",
+            latencyLabel: getServiceNodeLatencyLabel(node),
+            selectable: true,
+            isCurrent: !!node.isCurrent,
+            isManual: !!node.isManual || (state.mode == 'manual' && state.manualNode == host),
+            isRecommended: !!(recommended && recommended.host == host),
+            isLocked: false,
+            isOffline: node.latencyMs < 0,
+            badges: badges
+        });
+    }
+
+    return {
+        mode: "generic",
+        title: "Relay Nodes",
+        eyebrow: "Smart routing",
+        subtitle: "Relay node selection",
+        currentLabel: currentLabel,
+        currentMeta: state.mode == 'manual' ? "Manual relay pin is active." : "Auto mode prefers the best latency relay node.",
+        currentLatency: currentLatency,
+        currentModeLabel: state.mode == 'manual' ? "Manual" : translate("Auto"),
+        infoTitle: state.mode == 'manual' ? "A relay node is pinned for this client." : "Auto mode chooses the best relay node.",
+        infoText: "Click any relay node card to pin it manually, or switch back to auto routing. The ID server remains fixed.",
+        footerHint: "Latency probing refreshes the relay recommendations automatically.",
+        restoreAutoVisible: state.mode == 'manual',
+        nodes: cards
+    };
+}
+
+function build_service_nodes_dialog_model(mode) {
+    return mode == "runtime"
+        ? build_runtime_service_nodes_dialog_model()
+        : build_generic_service_nodes_dialog_model();
+}
+
+function close_service_nodes_dialog() {
+    active_service_nodes_dialog = null;
+    closeMsgbox();
+}
+
+function schedule_service_nodes_dialog_refresh(dialog, shouldRefresh=true) {
+    if (!dialog) return;
+    if (shouldRefresh) {
+        handler.refresh_service_nodes();
+    }
+    dialog.refreshTicket = getTime();
+    dialog.pendingRefresh = true;
+    dialog.update();
+    var ticket = dialog.refreshTicket;
+    self.timer(350ms, function() {
+        if (active_service_nodes_dialog != dialog || dialog.refreshTicket != ticket) return;
+        dialog.pendingRefresh = false;
+        dialog.update();
+    });
+    self.timer(900ms, function() {
+        if (active_service_nodes_dialog != dialog || dialog.refreshTicket != ticket) return;
+        dialog.pendingRefresh = false;
+        dialog.update();
+    });
+    self.timer(1800ms, function() {
+        if (active_service_nodes_dialog != dialog || dialog.refreshTicket != ticket) return;
+        dialog.pendingRefresh = false;
+        dialog.update();
+    });
+}
+
+function apply_service_nodes_dialog_selection(mode, key) {
+    key = (key || '').trim();
+    if (!key) {
+        return { error: "Node code is empty" };
+    }
+    if (mode == "runtime") {
+        var nodes = get_runtime_service_nodes();
+        var state = get_runtime_node_state();
+        if (!state.allowManualSelection) {
+            return { error: "Node selection is managed by policy." };
+        }
+        if (key == "__auto__") {
+            handler.set_local_option("rdx-runtime-manual-node-code", "");
+            var autoNode = choose_runtime_auto_node(nodes, get_service_node_probe_map(), state.autoSelectMode);
+            if (!autoNode) {
+                return { error: "No available service node" };
+            }
+            apply_runtime_service_node(autoNode, state, false);
+            return { message: "Auto relay routing restored." };
+        }
+        var matched = find_runtime_service_node(nodes, key);
+        if (!matched) {
+            return { error: "Node not found: " + key };
+        }
+        if (matched.manualSelectable === false) {
+            return { error: "This node is locked by policy." };
+        }
+        handler.set_local_option("rdx-runtime-manual-node-code", (matched.code || '').trim());
+        apply_runtime_service_node(matched, state, true);
+        return { message: "Switched to " + ((matched.name || '').trim() || (matched.code || '').trim()) + "." };
+    }
+
+    var state = getServiceNodeState();
+    var configOptions = handler.get_options();
+    if (key == "__auto__") {
+        configOptions["relay-server"] = "";
+        handler.set_options(configOptions);
+        return { message: "Auto relay routing restored." };
+    }
+    var nodes = state.nodes || [];
+    var found = false;
+    for (var i = 0; i < nodes.length; ++i) {
+        if ((nodes[i].host || '').trim() == key) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        return { error: "Node not found: " + key };
+    }
+    configOptions["relay-server"] = key;
+    handler.set_options(configOptions);
+    return { message: "Pinned relay to " + key + "." };
+}
+
+class ServiceNodesDialog: Reactor.Component {
+    function this(params) {
+        this.mode = params.mode || "generic";
+        this.noticeText = "";
+        this.noticeTone = "info";
+        this.pendingRefresh = false;
+        this.refreshTicket = 0;
+        active_service_nodes_dialog = this;
+        var me = this;
+        self.timer(1ms, function() {
+            if (active_service_nodes_dialog == me) {
+                schedule_service_nodes_dialog_refresh(me);
+            }
+        });
+    }
+
+    function getModel() {
+        return build_service_nodes_dialog_model(this.mode);
+    }
+
+    function showNotice(text, tone="info") {
+        this.noticeText = text || "";
+        this.noticeTone = tone || "info";
+        this.update();
+    }
+
+    function renderBadges(node) {
+        if (!node.badges || !node.badges.length) return <span />;
+        return <div .service-node-card-badges>
+            {node.badges.map(function(label) {
+                var badgeClass = "service-node-badge";
+                if (label == "Current") badgeClass += " current";
+                else if (label == "Manual") badgeClass += " manual";
+                else if (label == "Recommended") badgeClass += " recommended";
+                else if (label == "Locked") badgeClass += " locked";
+                else if (label == "Offline") badgeClass += " offline";
+                return <span class={badgeClass}>{label}</span>;
+            })}
+        </div>;
+    }
+
+    function renderCard(node) {
+        var cardClass = "service-node-card";
+        if (node.isCurrent) cardClass += " current";
+        if (node.isRecommended) cardClass += " recommended";
+        if (!node.selectable) cardClass += " disabled";
+        return <div class={cardClass} nodekey={node.key} selectable={node.selectable ? "Y" : "N"}>
+            <div .service-node-card-head>
+                <div .service-node-card-main>
+                    <div .service-node-card-title>{node.title}</div>
+                    <div .service-node-card-subtitle>{node.subtitle || ""}</div>
+                </div>
+                <div class={node.isOffline ? "service-node-card-latency offline" : "service-node-card-latency"}>{node.latencyLabel}</div>
+            </div>
+            {node.detail ? <div .service-node-card-detail>{node.detail}</div> : ""}
+            {this.renderBadges(node)}
+        </div>;
+    }
+
+    function render() {
+        var model = this.getModel();
+        if (!model) {
+            close_service_nodes_dialog();
+            return <span />;
+        }
+        var me = this;
+        var noticeClass = "service-nodes-notice " + this.noticeTone;
+        return <div .service-nodes-overlay>
+            <div .service-nodes-shell>
+                <div .service-nodes-header>
+                    <div .service-nodes-brand>{svg_service_nodes}</div>
+                    <div .service-nodes-heading>
+                        <div .service-nodes-eyebrow>{model.eyebrow}</div>
+                        <div .service-nodes-title>{model.title}</div>
+                        <div .service-nodes-subtitle>{model.subtitle}</div>
+                    </div>
+                    <button class="service-nodes-icon-btn service-nodes-close-btn">{svg_dialog_close}</button>
+                </div>
+                <div .service-nodes-current-banner>
+                    <div .service-nodes-current-copy>
+                        <div .service-nodes-current-label>{translate("Current node")}</div>
+                        <div .service-nodes-current-title>{model.currentLabel}</div>
+                        <div .service-nodes-current-meta>{model.currentMeta}</div>
+                    </div>
+                    <div .service-nodes-current-side>
+                        <div .service-nodes-current-latency>{model.currentLatency}</div>
+                        <div .service-nodes-current-mode>{model.currentModeLabel}</div>
+                    </div>
+                </div>
+                <div .service-nodes-info-banner>
+                    <div .service-nodes-info-icon>{svg_dialog_info}</div>
+                    <div .service-nodes-info-copy>
+                        <div .service-nodes-info-title>{model.infoTitle}</div>
+                        <div .service-nodes-info-text>{model.infoText}</div>
+                    </div>
+                </div>
+                {this.noticeText ? <div class={noticeClass}>{this.noticeText}</div> : ""}
+                <div .service-nodes-list>
+                    {model.nodes.length
+                        ? model.nodes.map(function(node) { return me.renderCard(node); })
+                        : <div .service-nodes-empty>{this.pendingRefresh ? "Refreshing node list..." : "No service nodes available."}</div>}
+                </div>
+                <div .service-nodes-footer>
+                    <div .service-nodes-footer-text>{this.pendingRefresh ? "Refreshing node latency..." : model.footerHint}</div>
+                    <div .service-nodes-footer-actions>
+                        {model.restoreAutoVisible ? <button class="button outline service-nodes-auto-btn">{translate("Auto")}</button> : ""}
+                        <button class="button outline service-nodes-refresh-btn">
+                            <span .service-nodes-refresh-icon>{svg_refresh_password}</span>
+                            <span>{translate("Refresh")}</span>
+                        </button>
+                        <button class="button service-nodes-close-btn">{translate("Close")}</button>
+                    </div>
+                </div>
+            </div>
+        </div>;
+    }
+
+    event click $(.service-nodes-close-btn) () {
+        close_service_nodes_dialog();
+    }
+
+    event click $(.service-nodes-refresh-btn) () {
+        this.showNotice("Refreshing node latency...", "info");
+        schedule_service_nodes_dialog_refresh(this);
+    }
+
+    event click $(.service-nodes-auto-btn) () {
+        var result = apply_service_nodes_dialog_selection(this.mode, "__auto__");
+        if (result.error) {
+            this.showNotice(result.error, "error");
+            return;
+        }
+        this.showNotice(result.message, "success");
+        schedule_service_nodes_dialog_refresh(this);
+    }
+
+    event click $(.service-node-card) (_, me) {
+        if ((me.attributes["selectable"] || "") != "Y") return;
+        var key = (me.attributes["nodekey"] || '').trim();
+        if (!key) return;
+        var result = apply_service_nodes_dialog_selection(this.mode, key);
+        if (result.error) {
+            this.showNotice(result.error, "error");
+            return;
+        }
+        this.showNotice(result.message, "success");
+        schedule_service_nodes_dialog_refresh(this);
+    }
+}
+
+function open_service_nodes_dialog(mode) {
+    var model = build_service_nodes_dialog_model(mode);
+    if (!model) return false;
+    $(#msgbox).content(<ServiceNodesDialog mode={mode} />);
+    return true;
+}
+
+function apply_runtime_service_node(node, state, manualMode=true) {
+    var configOptions = handler.get_options();
+    var code = (node.code || "").trim();
+    var probeHost = get_runtime_service_node_probe_host(node);
+    var idServer = (node.idServer || "").trim();
+    var relayServer = (node.relayServer || "").trim();
+    var apiServer = (node.apiServer || "").trim();
+    var publicKey = (node.publicKey || "").trim();
+    var fixedIdServer = ((handler.get_local_option("rdx-runtime-fixed-id-server") || idServer) || "").trim();
+    var fixedApiServer = ((handler.get_local_option("rdx-runtime-fixed-api-server") || apiServer) || "").trim();
+    var fixedPublicKey = ((handler.get_local_option("rdx-runtime-fixed-public-key") || publicKey) || "").trim();
+    if (code) {
+        handler.set_local_option("rdx-runtime-selected-node-code", code);
+    }
+    handler.set_local_option("rdx-runtime-selected-node-probe-host", probeHost);
+    handler.set_local_option("rdx-runtime-selected-node-relay-server", relayServer);
+    handler.set_local_option("rdx-runtime-selected-node-api-server", apiServer);
+    handler.set_local_option("rdx-runtime-custom-rendezvous-server", fixedIdServer);
+    handler.set_local_option("rdx-runtime-relay-server", relayServer);
+    handler.set_local_option("rdx-runtime-api-server", fixedApiServer);
+    var probe = get_service_node_probe(probeHost);
+    handler.set_local_option("rdx-runtime-selected-node-latency", probe && probe.isOnline && probe.latencyMs > 0 ? '' + probe.latencyMs : "");
+    if (state.profileName) {
+        handler.set_local_option("rdx-runtime-profile-name", state.profileName);
+    }
+    if (relayServer) {
+        configOptions["relay-server"] = relayServer;
+    }
+    if (fixedIdServer) {
+        configOptions["custom-rendezvous-server"] = fixedIdServer;
+    }
+    if (fixedApiServer) {
+        configOptions["api-server"] = fixedApiServer.toLowerCase();
+    }
+    if (fixedPublicKey) {
+        configOptions["key"] = fixedPublicKey;
+    }
+    handler.set_options(configOptions);
+}
+
+function open_runtime_nodes_dialog() {
+    var nodes = get_runtime_service_nodes();
+    if (!nodes.length) {
+        return false;
+    }
+    return open_service_nodes_dialog("runtime");
+}
+
+function open_legacy_custom_server_dialog() {
+    var configOptions = handler.get_options();
+    var old_relay = configOptions["relay-server"] || "";
+    var old_api = configOptions["api-server"] || "";
+    var old_id = configOptions["custom-rendezvous-server"] || "";
+    var old_key = configOptions["key"] || "";
+    msgbox("custom-server", "ID/Relay Server", "<div .form .set-password> \
+            <div><span>" + translate("ID Server") + ": </span><input|text .outline-focus name='id' value='" + old_id + "' /></div> \
+            <div><span>" + translate("Relay Server") + ": </span><input|text name='relay' value='" + old_relay + "' /></div> \
+            <div><span>" + translate("API Server") + ": </span><input|text name='api' value='" + old_api + "' /></div> \
+            <div><span>" + translate("Key") + ": </span><input|text name='key' value='" + old_key + "' /></div> \
+            </div> \
+            ", "", function(res=null, show_progress) {
+                if (!res) return;
+                if (typeof show_progress === 'function') show_progress();
+                var id = (res.id || "").trim();
+                var relay = (res.relay || "").trim();
+                var api = (res.api || "").trim().toLowerCase();
+                var key = (res.key || "").trim();
+                if (id == old_id && relay == old_relay && key == old_key && api == old_api) return;
+                if (id) {
+                    var err = handler.test_if_valid_server(id, true);
+                    if (err) { if (typeof show_progress === 'function') show_progress(false, translate("ID Server") + ": " + err); return; }
+                }
+                if (relay) {
+                    var err = handler.test_if_valid_server(relay, true);
+                    if (err) { if (typeof show_progress === 'function') show_progress(false, translate("Relay Server") + ": " + err); return; }
+                }
+                if (api) {
+                    if (0 != api.indexOf("https://") && 0 != api.indexOf("http://")) {
+                        if (typeof show_progress === 'function') show_progress(false, translate("API Server") + ": " + translate("invalid_http"));
+                        return;
+                    }
+                }
+                configOptions["custom-rendezvous-server"] = id;
+                configOptions["relay-server"] = relay;
+                configOptions["api-server"] = api;
+                configOptions["key"] = key;
+                handler.set_options(configOptions);
+                if (typeof show_progress === 'function') show_progress(-1);
+            }, 260, get_msgbox_width());
+}
+
+// Shared dialog functions
+function open_custom_server_dialog() {
+    if (open_runtime_nodes_dialog()) {
+        return;
+    }
+    var state = getServiceNodeState();
+    if (!state.poolConfigured) {
+        open_legacy_custom_server_dialog();
+        return;
+    }
+    open_service_nodes_dialog("generic");
+}
+
+function open_whitelist_dialog() {
+    var is_opt_fixed = handler.is_option_fixed("whitelist");
+    var v = handler.get_option("whitelist");
+    var old_value = v == default_option_whitelist ? '' : v.split(",").join("\n");
+    var type_str = is_opt_fixed ? "custom-whitelist-nook" : "custom-whitelist";
+    var readonly_attr = is_opt_fixed ? " readonly=\"readonly\"" : "";
+    var grey_class = is_opt_fixed ? " class=\"grey-text\"" : "";
+    msgbox(type_str, translate("IP Whitelisting"), "<div .form> \
+            <div" + grey_class + ">" + translate("whitelist_sep") + "</div> \
+            <textarea .outline-focus spellcheck=\"false\" name=\"text\" novalue=\"0.0.0.0\"" + readonly_attr + grey_class + " style=\"overflow: scroll-indicator; width:*; height: 140px; font-size: 1.2em; padding: 0.5em;\">" + old_value + "</textarea>\
+            </div> \
+            ", "", function(res=null, show_progress) {
+                if (!res) return;
+                if (typeof show_progress === 'function') show_progress();
+                var value = (res.text || "").trim();
+                if (value) {
+                    var values = value.split(/[\s,;\n]+/g);
+                    for (var ip in values) {
+                        if (!ip.match(/^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]?|0)\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]?|0)\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]?|0)\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]?|0)(\/([1-9]|[1-2][0-9]|3[0-2])){0,1}$/)
+                            && !ip.match(/^(((?:[0-9A-Fa-f]{1,4}))*((?::[0-9A-Fa-f]{1,4}))*::((?:[0-9A-Fa-f]{1,4}))*((?::[0-9A-Fa-f]{1,4}))*|((?:[0-9A-Fa-f]{1,4}))((?::[0-9A-Fa-f]{1,4})){7})(\/([1-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8])){0,1}$/)) {
+                            if (typeof show_progress === 'function') show_progress(false, translate("Invalid IP") + ": " + ip);
+                            return;
+                        }
+                    }
+                    value = values.join("\n");
+                }
+                if (value == old_value) return;
+                if (!value) value = default_option_whitelist;
+                handler.set_option("whitelist", value.replace("\n", ","));
+                if (typeof show_progress === 'function') show_progress(-1);
+            }, 300, get_msgbox_width());
+}
+
+function open_proxy_dialog() {
+    var is_opt_fixed = handler.is_option_fixed("proxy-url");
+    var socks5 = handler.get_socks() || {};
+    var old_proxy = socks5[0] || "";
+    var old_username = socks5[1] || "";
+    var old_password = socks5[2] || "";
+    var type_str = is_opt_fixed ? "custom-server-nook" : "custom-server";
+    var greyStyle = is_opt_fixed ? grey_text_style : "";
+    msgbox(type_str, "Socks5/Http(s) Proxy", <div .form .set-password>
+            <div><span style={greyStyle}>{translate("Server")}:</span><input|text .outline-focus style={greyStyle} name='proxy' value={old_proxy} disabled={ is_opt_fixed ? "true" : "false" } /></div>
+            <div><span style={greyStyle}>{translate("Username")}:</span><input|text style={greyStyle} name='username' value={old_username} disabled={ is_opt_fixed ? "true" : "false" } /></div>
+            <div><span style={greyStyle}>{translate("Password")}:</span>{ is_opt_fixed ? <input|password style={grey_text_style} name='password' value={old_password} disabled="true" /> : <PasswordComponent value={old_password} /> }</div>
+            </div>
+            , "", function(res=null, show_progress) {
+                if (!res) return;
+                if (typeof show_progress === 'function') show_progress();
+                var proxy = (res.proxy || "").trim();
+                var username = (res.username || "").trim();
+                var password = (res.password || "").trim();
+                if (proxy == old_proxy && username == old_username && password == old_password) return;
+                if (proxy) {
+                    var domain_port = proxy;
+                    var protocol_index = domain_port.indexOf('://');
+                    if (protocol_index !== -1) {
+                        domain_port = domain_port.substring(protocol_index + 3);
+                    }
+                    var err = handler.test_if_valid_server(domain_port, false);
+                    if (err) { if (typeof show_progress === 'function') show_progress(false, translate("Server") + ": " + err); return; }
+                }
+                handler.set_socks(proxy, username, password);
+                if (typeof show_progress === 'function') show_progress(-1);
+            }, 240, get_msgbox_width());
+}
+
+function updateTheme() {
+    var root_element = self;
+    if (handler.get_option("allow-darktheme") == "Y") {
+        // enable dark theme
+        root_element.attributes.toggleClass("darktheme", true);
+    } else {
+        // disable dark theme
+        root_element.attributes.toggleClass("darktheme", false);
+    }
+}
+
+class MyIdMenu: Reactor.Component {
+    function this() {
+        myIdMenu = this;
+    }
+
+    function render() {
+        return <div #myid>
+            {this.renderPop()}
+            ID{svg_menu}
+        </div>;
+    }
+
+    function renderPop() {
+        var accountLabel = handler.get_local_option("access_token") ? getAccountLabelWithHandle() : '';
+        var serverSettingsLabel = get_server_settings_label();
+        return <popup>
+            <menu.context #config-options>
+                {!disable_settings && <li #enable-keyboard><span>{svg_checkmark}</span>{translate('Enable keyboard/mouse')}</li>}
+                {!disable_settings && <li #enable-clipboard><span>{svg_checkmark}</span>{translate('Enable clipboard')}</li>}
+                {!disable_settings && <li #enable-file-transfer><span>{svg_checkmark}</span>{translate('Enable file transfer')}</li>}
+                {!disable_settings && <li #enable-camera><span>{svg_checkmark}</span>{translate('Enable camera')}</li>}
+                {!disable_settings && <li #enable-terminal><span>{svg_checkmark}</span>{translate('Enable terminal')}</li>}
+                {!disable_settings && <li #enable-remote-restart><span>{svg_checkmark}</span>{translate('Enable remote restart')}</li>}
+                {!disable_settings && <li #enable-tunnel><span>{svg_checkmark}</span>{translate('Enable TCP tunneling')}</li>}
+                {!disable_settings && is_win ? <li #enable-block-input><span>{svg_checkmark}</span>{translate('Enable blocking user input')}</li> : ""}
+                {!disable_settings && <li #enable-lan-discovery><span>{svg_checkmark}</span>{translate('Enable LAN discovery')}</li>}
+                <AudioInputs />
+                <Enhancements />
+                {!disable_settings && <li #allow-remote-config-modification><span>{svg_checkmark}</span>{translate('Enable remote configuration modification')}</li>}
+                {!disable_settings && <div .separator />}
+                {!disable_settings && !hide_server_settings && <li #custom-server>{serverSettingsLabel}</li>}
+                {!disable_settings && <li #whitelist title={translate('whitelist_tip')}>{translate('IP Whitelisting')}</li>}
+                {!disable_settings && !hide_proxy_settings && <li #socks5-server>{translate('Socks5/Http(s) Proxy')}</li>}
+                {!disable_settings && !hide_websocket_settings && <li #allow-websocket><span>{svg_checkmark}</span>{translate('Use WebSocket')}</li>}
+                {!disable_settings && !using_public_server && !outgoing_only && <li #disable-udp class={disable_udp ? "selected" : "line-through"}><span>{svg_checkmark}</span>{translate('Disable UDP')}</li>}
+                {!disable_settings && !using_public_server && <li #allow-insecure-tls-fallback><span>{svg_checkmark}</span>{translate('Allow insecure TLS fallback')}</li>}
+                <div .separator />
+                <li #stop-service class={service_stopped ? "line-through" : "selected"}><span>{svg_checkmark}</span>{translate("Enable service")}</li>
+                {!disable_settings && is_win && handler.is_installed() ? <ShareRdp /> : ""}
+                {!disable_settings && <DirectServer />}
+                {!disable_settings && false && handler.using_public_server() && <li #allow-always-relay><span>{svg_checkmark}</span>{translate('Always connect via relay')}</li>}
+                {!disable_change_id && handler.is_ok_change_id() ? <div .separator /> : ""}
+                {!disable_account && (accountLabel ?
+                <li #logout>{translate('Logout')} ({accountLabel})</li> :
+                <li #login>{translate('Login')}</li>)}
+                {!disable_change_id && !disable_settings && handler.is_ok_change_id() && key_confirmed && connect_status > 0 ? <li #change-id>{translate('Change ID')}</li> : ""}
+                <div .separator />
+                <li #allow-darktheme><span>{svg_checkmark}</span>{translate('Dark Theme')}</li>
+                <Languages />
+                {disable_installation ? "" : <li #allow-auto-update><span>{svg_checkmark}</span>{translate('Auto update')}</li>} 
+                <li #about>{translate('About')} {" "}{handler.get_app_name()}</li>
+            </menu>
+        </popup>;
+    }
+
+    event click $(svg#menu) (_, me) {
+        this.showSettingMenu();
+    }
+
+    function showSettingMenu() {
+        audioInputMenu.update({ show: true });
+        this.toggleMenuState();
+        if (direct_server) direct_server.update();
+        var menu = this.$(menu#config-options);
+        this.$(svg#menu).popup(menu);
+    }
+
+    event click $(li#login) () {
+        login();
+    }
+
+    event click $(li#logout) () {
+        logout();
+    }
+
+    function toggleMenuState() {
+        for (var el in $$(menu#config-options>li)) {
+            var id = el.id;
+            if (!id) continue;
+            var is_opt_fixed = handler.is_option_fixed(id);
+            if (id.indexOf("enable-") == 0) {
+                var enabled = handler.get_option(id) != "N";
+                el.attributes.toggleClass("selected", enabled);
+                el.attributes.toggleClass("line-through", !enabled);
+            } else if (id.indexOf("allow-") == 0) {
+                var enabled = handler.get_option(id) == "Y";
+                el.attributes.toggleClass("selected", enabled);
+                el.attributes.toggleClass("line-through", !enabled);
+            } else if (id == "whitelist") {
+                // whitelist should be clickable even when fixed (to view the content)
+                // The dialog will show readonly textarea and no OK button when fixed
+                continue;
+            }
+            if (is_opt_fixed) {
+                el.state.disabled = true;
+            }
+        }
+    }
+
+    function showAbout() {
+        var name = handler.get_app_name();
+        msgbox("custom-nocancel-nook-hasclose", translate("About") + " " + name, "<div style='line-height: 2em'> \
+            <div>Version: " + handler.get_version() + " \
+            <div>Fingerprint: " + handler.get_fingerprint() + " \
+            <div .link .custom-event url='https://rustdesk.com/privacy.html'>" + translate("Privacy Statement") + "</div> \
+            <div .link .custom-event url='https://rustdesk.com'>" + translate("Website") + "</div> \
+	    <div style='background: #2c8cff; color: white; padding: 1em; margin-top: 1em;'>Copyright &copy; 2025 Purslane Ltd.\
+            <br />" + handler.get_license() + " \
+            <p style='font-weight: bold'>" + translate("Slogan_tip") + "</p>\
+            </div>\
+        </div>", "", function(el) {
+            if (el && el.attributes) {
+                handler.open_url(el.attributes['url']);
+            };
+        }, 400, get_msgbox_width());
+    }
+
+    event click $(menu#config-options>li) (_, me) {
+        if (me.state.disabled) return;
+        if (me.id && me.id.indexOf("enable-") == 0) {
+            handler.set_option(me.id, handler.get_option(me.id) == "N" ? default_option_yes : "N");
+        }
+        if (me.id && me.id.indexOf("allow-") == 0) {
+            handler.set_option(me.id, handler.get_option(me.id) == "Y" ? default_option_no : "Y");
+        }
+        if (me.id == "whitelist") {
+            open_whitelist_dialog();
+        } else if (me.id == "custom-server") {
+            open_custom_server_dialog();
+        } else if (me.id == "socks5-server") {
+            open_proxy_dialog();
+        } else if (me.id == "disable-udp") {
+            handler.set_option("disable-udp", handler.get_option("disable-udp") == "Y" ? "N" : "Y");
+        } else if (me.id == "stop-service") {
+            handler.set_option("stop-service", service_stopped ? default_option_no : "Y");
+        } else if (me.id == "change-id") {
+            var id_label_width = incoming_only ? "50px" : "100px";
+            var input_width = incoming_only ? (incoming_only_width - 20) + "px" : "250px";
+            msgbox("custom-id", translate("Change ID"), "<div .form .set-password> \
+            <div>" + translate('id_change_tip') + " </div> \
+            <div><span style='width: " + id_label_width + "; display:inline-block'>ID: </span><input|text .outline-focus style='width: " + input_width + "' name='id' /></div> \
+            </div> \
+            ", "", function(res=null, show_progress) {
+                if (!res) return;
+                show_progress();
+                var id = (res.id || "").trim();
+                if (!id) return;
+                if (id == my_id) return;
+                handler.change_id(id);
+                function check_status() {
+                    var status = handler.get_async_job_status();
+                    if (status == " ") self.timer(0.1s, check_status);
+                    else {
+                        if (status) show_progress(false, translate(status));
+                        else show_progress(-1);
+                    }
+                }
+                check_status();
+                return " ";
+            }, msgbox_default_height, get_msgbox_width());
+        } else if (me.id == "allow-darktheme") {
+            updateTheme();
+        } else if (me.id == "about") {
+            this.showAbout()
+        }
+    }
+}
+
+var is_edit_direct_access_port;
+class EditDirectAccessPort: Reactor.Component {
+    function render() {
+        return <span style="margin-left: 12px; padding: 0 6px; display: inline-block;" .link>{svg_edit}</span>;
+    }
+
+    function onMouse(evt) {
+        if (evt.type == Event.MOUSE_DOWN) {
+            is_edit_direct_access_port = true;
+            editDirectAccessPort();
+        }
+    }
+}
+
+function editDirectAccessPort() {
+    var is_opt_fixed = handler.is_option_fixed("direct-access-port");
+    var p0 = handler.get_option('direct-access-port');
+    var greyStyle = is_opt_fixed ? grey_text_style : "";
+    var port = p0 ? <input|text style={greyStyle} name='port' value={p0} disabled={is_opt_fixed ? "true" : "false"} /> :
+                    <input|text style={greyStyle} name='port' novalue={21118} disabled={is_opt_fixed ? "true" : "false"} />;
+    var type_str = is_opt_fixed ? "custom-direct-access-port-nook" : "custom-direct-access-port";
+    msgbox(type_str, translate('Direct IP Access Settings'), <div .form .set-password>
+            <div><span style={"width: 60px;" + greyStyle}>{translate('Port')}:</span>{port}</div>
+        </div>, "", function(res=null) {
+        if (!res) return;
+        var p = (res.port || '').trim();
+        if (p) {
+            p = p.toInteger();
+            if (!(p > 0)) {
+                return translate("Invalid port");
+            }
+            p = p + '';
+        }
+        if (p != p0) handler.set_option('direct-access-port', p);
+      }, msgbox_default_height, get_msgbox_width());
+}
+
+class App: Reactor.Component
+{
+    function this() {
+        app = this;
+    }
+
+    function render() {
+        var is_can_screen_recording = handler.is_can_screen_recording(false);
+        return
+            <div .app>
+                    <div .left-pane style={incoming_only ? "width:*" : ""}>
+                    <div>
+                        {is_custom_client && handler.get_builtin_option("hide-powered-by-me") != "Y" ? <div .link #powered-by style="opacity:0.5;font-size:0.8em;text-decoration:underline">{translate('powered_by_me')}</div> : ""}
+                        <div .title style="flow:horizontal; position:relative; height:1.6em; line-height:1.6em">
+                            <span>{translate('Your Desktop')}</span>
+                            {outgoing_only ? <span .link #open-settings style="position:absolute; right:0; bottom:0; transform:scale(0.6); transform-origin:right bottom; opacity:0.85">{svg_menu}</span> : ""}
+                        </div>
+                        <div .lighter-text>{outgoing_only ? translate('outgoing_only_desk_tip') : translate('desk_tip')}</div>
+                        {outgoing_only ? <div style="position:absolute; left:-10000px; top:-10000px; width:0; height:0; overflow:hidden"><MyIdMenu /></div> : ""}
+                        {!outgoing_only && <div .your-desktop>
+                            <MyIdMenu />
+                            {key_confirmed ? <input type="text" readonly value={formatId(get_id())}/> : translate("Generating ...")}
+                        </div>}
+                        {!outgoing_only && <PasswordArea />}
+                    </div>
+                    {(!is_win || handler.is_installed() || disable_installation) ? "" : <InstallMe />}
+                    {software_update_url && !disable_installation ? <UpdateMe /> : ""}
+                    {is_win && handler.is_installed() && !software_update_url && handler.is_installed_lower_version() && !disable_installation ? <UpgradeMe /> : ""}
+                    {is_can_screen_recording ? "": <CanScreenRecording />}
+                    {is_can_screen_recording && !handler.is_process_trusted(false) ? <TrustMe /> : ""}
+                    {!service_stopped && is_can_screen_recording && handler.is_process_trusted(false) && handler.is_installed() && !handler.is_installed_daemon(false) ? <InstallDaemon /> : ""}
+                    {system_error ? <SystemError /> : ""}
+                    {!system_error && handler.is_login_wayland() && !handler.current_is_wayland() ? <FixWayland /> : ""}
+                    {!system_error && handler.current_is_wayland() ? <ModifyDefaultLogin /> : ""}
+                    {incoming_only ? <ConnectStatus @{this.connect_status} /> : ""}
+                </div>
+                {!incoming_only && <div .right-pane>
+                    <div .right-content>
+                        <div .card-connect>
+                            <div .title>{translate('Control Remote Desktop')}</div>
+                            <ID @{this.remote_id} />
+                            <div .right-buttons>
+                                <button .button .outline #file-transfer disabled={get_outgoing_control_lock_reason() ? "true" : "false"}>{translate('Transfer file')}</button>
+                                <button .button #connect disabled={get_outgoing_control_lock_reason() ? "true" : "false"}>{translate('Connect')}</button>
+                            </div>
+                            <div .lighter-text style={get_outgoing_control_lock_reason() ? "margin-top:0.7em;color:#ffb06d;" : "margin-top:0.7em;"}>{get_outgoing_control_hint()}</div>
+                        </div>
+                        <MultipleSessions @{this.multipleSessions} />
+                    </div>
+                    {!outgoing_only ? <ConnectStatus @{this.connect_status} /> : ""}
+                </div>}
+                <div #overlay style="position: absolute;size:*;background:black;opacity:0.5;display:none" />
+            </div>; 
+    }
+
+    event click $(button#connect) {
+        this.newRemote("connect");
+    }
+
+    event click $(button#file-transfer) {
+        this.newRemote("file-transfer");
+    }
+
+    function newRemote(type) {
+        createNewConnect(this.remote_id.value, type);
+    }
+}
+
+class InstallMe: Reactor.Component {
+    function render() {
+        return <div .install-me>
+            <span />
+            <div>{translate('install_tip')}</div>
+            <div><button #install-me .button>{translate('Install')}</button></div>
+        </div>;
+    }
+
+    event click $(#install-me) {
+        handler.goto_install();
+    }
+}
+
+function download(from, to, args..) {
+    var rqp = { type:#get, url: from, toFile: to };
+    var fn = 0;
+    var on = 0;
+    for( var p in args ) {
+        if( p instanceof Function ) {
+            switch(++fn) {
+                case 1: rqp.success = p; break;
+                case 2: rqp.error = p; break;
+                case 3: rqp.progress = p; break;
+            }
+        } else if( p instanceof Object ) {
+            switch(++on) {
+                case 1: rqp.params = p; break;
+                case 2: rqp.headers = p; break;
+            }
+        }  
+    }
+    view.request(rqp);
+}
+
+// current running version is higher than installed
+class UpgradeMe: Reactor.Component {
+    function render() {
+        var update_or_download = is_osx ? "download" : "update";
+        return <div .install-me>
+            <div>{translate('Status')}</div>
+            <div>{translate('Your installation is lower version.')}</div>
+            <div #install-me.link>{translate('Click to upgrade')}</div>
+        </div>;
+    }
+
+    event click $(#install-me) {
+        handler.update_me("");
+    }
+}
+
+class UpdateMe: Reactor.Component {
+    function render() {
+        var update_or_download = "download"; // !is_win ? "download" : "update";
+        return <div .install-me>
+            <div>{translate('Status')}</div>
+            <div>There is a newer version of {handler.get_app_name()} ({handler.get_new_version()}) available.</div>
+            {is_custom_client
+                ? <div style="font-size: 1em; font-weight: normal; text-align: left; padding-top: 1em;">{translate('Enable \"Auto update\" or contact your administrator for the latest version.')}</div>
+                : <div #install-me.link>{translate('Click to ' + update_or_download)}</div>}
+            <div #download-percent style="display:hidden; padding-top: 1em;" />
+        </div>;
+    }
+
+    event click $(#install-me) {
+        handler.open_url("https://rustdesk.com/download");
+        return;
+        if (!is_win) {
+            handler.open_url("https://rustdesk.com");
+            return;
+        }
+        var url = software_update_url + '.' + handler.get_software_ext();
+        var path = handler.get_software_store_path();
+        var onsuccess = function(md5) {
+            $(#download-percent).content(translate("Installing ..."));
+            handler.update_me(path);
+        };
+        var onerror = function(err) {
+            msgbox("custom-error", "Download Error", "Failed to download"); 
+        };
+        var onprogress = function(loaded, total) {
+            if (!total) total = 5 * 1024 * 1024;
+            var el = $(#download-percent);
+            el.style.set{display: "block"};
+            el.content("Downloading %" + (loaded * 100 / total));
+        };
+        stdout.println("Downloading " + url + " to " + path);
+        download(
+            url,
+            self.url(path),
+            onsuccess, onerror, onprogress);
+    }
+}
+
+class SystemError: Reactor.Component {
+    function render() {
+        return <div .install-me>
+            <div>{system_error}</div>
+        </div>;
+    }
+}
+
+class TrustMe: Reactor.Component {
+    function render() {
+        return <div .trust-me #trust-me-box>
+            <div>{translate('Permissions')}</div>
+            <div>{translate('config_acc')}</div>
+            <div #trust-me .link>{translate('Configure')}</div>
+            <div #help-me .link>{translate('Help')}</div>
+        </div>;
+    }
+
+    event click $(#trust-me) {
+        handler.is_process_trusted(true);
+        watch_trust();
+    }
+    
+    event click $(#help-me) {
+        handler.open_url(translate("doc_mac_permission"));
+    }
+}
+
+class CanScreenRecording: Reactor.Component {
+    function render() {
+        return <div .trust-me #screen-recording-box>
+            <div>{translate('Permissions')}</div>
+            <div>{translate('config_screen')}</div>
+            <div #screen-recording .link>{translate('Configure')}</div>
+            <div #help-me .link>{translate('Help')}</div>
+        </div>;
+    }
+
+    event click $(#screen-recording) {
+        handler.is_can_screen_recording(true);
+        watch_screen_recording();
+    }
+    
+    event click $(#help-me) {
+        handler.open_url(translate("doc_mac_permission"));
+    }
+}
+
+class InstallDaemon: Reactor.Component {
+    function render() {
+        return <div .install-me>
+            <span />
+            <div>{translate('install_daemon_tip')}</div>
+            <div #install-me.link>{translate('Install')}</div>
+        </div>;
+    }
+
+    event click $(#install-me) {
+        handler.is_installed_daemon(true);
+    }
+}
+
+class FixWayland: Reactor.Component {
+    function render() {
+        return <div .trust-me>
+            <div>{translate('Warning')}</div>
+            <div>{translate('Login screen using Wayland is not supported')}</div>
+            <div #help-me .link>{translate('Help')}</div>
+        </div>;
+    }
+
+    event click $(#help-me) {
+        handler.open_url(translate("doc_fix_wayland"));
+    }
+}
+
+class ModifyDefaultLogin: Reactor.Component {
+    function render() {
+        return <div .trust-me>
+            <div>{translate('Warning')}</div>
+            <div>{translate('wayland_experiment_tip')}</div>
+            <div #help-me .link>{translate('Help')}</div>
+        </div>;
+    }
+
+    event click $(#help-me) {
+        handler.open_url(translate("doc_fix_wayland"));
+    }
+}
+
+function watch_trust() {
+    // not use TrustMe::update, because it is buggy
+    var trusted = handler.is_process_trusted(false);
+    var el = $(div#trust-me-box);
+    if (el) {
+        el.style.set {
+            display: trusted ? "none" : "block",
+        };
+    }
+    if (trusted) {
+        app.update();
+        return;
+    }
+    self.timer(1s, watch_trust);
+}
+
+function watch_screen_recording() {
+    var trusted = handler.is_can_screen_recording(false);
+    var el = $(div#screen-recording-box);
+    if (el) {
+        el.style.set {
+            display: trusted ? "none" : "block",
+        };
+    }
+    if (trusted) {
+        app.update();
+        return;
+    }
+    self.timer(1s, watch_screen_recording);
+}
+
+class PasswordEyeArea : Reactor.Component {
+    render() {
+        var method = handler.get_option('verification-method');
+        var mode= handler.get_option('approve-mode');
+        var hide_one_time = mode == 'click' ||  method == 'use-permanent-password';
+        var value = hide_one_time ? "-" : password_cache[0];
+        return
+            <div .eye-area style="width: *">
+                <input|text @{this.input} readonly value={value} />
+                {hide_one_time ? "" : svg_refresh_password}
+            </div>;
+    }
+
+    event click $(svg#refresh-password) (_, me) {
+        handler.update_temporary_password();
+        this.update();
+    }
+}
+
+var temporaryPasswordLengthMenu;
+class TemporaryPasswordLengthMenu: Reactor.Component {
+    function this() {
+        temporaryPasswordLengthMenu = this;
+    }
+
+    function render() {
+        if (!this.show) return <li />;
+        var me = this;
+        var method = handler.get_option('verification-method');
+        self.timer(1ms, function() { me.toggleMenuState() });
+        return <li>{translate("One-time password length")}
+            <menu #temporary-password-length>
+                <li #temporary-password-length-6><span>{svg_checkmark}</span>6</li>
+                <li #temporary-password-length-8><span>{svg_checkmark}</span>8</li>
+                <li #temporary-password-length-10><span>{svg_checkmark}</span>10</li>
+            </menu>
+        </li>;
+    }
+
+    function toggleMenuState() {
+        var is_opt_fixed = handler.is_option_fixed('temporary-password-length');
+        var length = handler.get_option("temporary-password-length");
+        var index = ['6', '8', '10'].indexOf(length);
+        if (index < 0) index = 0;
+        for (var (i, el) in this.$$(menu#temporary-password-length>li)) {
+            el.attributes.toggleClass("selected", i == index);
+            if (is_opt_fixed) {
+                el.state.disabled = true;
+            }
+        }
+    }
+
+    event click $(menu#temporary-password-length>li) (_, me) {
+        if (me.state.disabled) return;
+        var length = me.id.substring('temporary-password-length-'.length);
+        var old_length = handler.get_option('temporary-password-length');
+        if (length != old_length) {
+            handler.set_option('temporary-password-length', length);
+            handler.update_temporary_password();
+            this.toggleMenuState();
+            passwordArea.update();
+        }
+    }
+}
+
+var passwordArea;
+class PasswordArea: Reactor.Component {
+    function this() {
+        passwordArea = this;
+    }
+
+    function render() {
+        var me = this;
+        self.timer(1ms, function() { me.toggleMenuState() });
+        return 
+        <div .your-desktop>
+            <div>{translate('One-time Password')}</div>
+            <div .password style="flow:horizontal">
+                {this.renderPop()}
+                <PasswordEyeArea />
+                {!disable_settings && svg_edit}
+            </div>
+        </div>;
+    }
+
+    function renderPop() {
+        var method = handler.get_option('verification-method');
+        var approve_mode= handler.get_option('approve-mode');
+        var show_password = approve_mode != 'click';
+        return <popup><menu.context #edit-password-context>
+            <li #approve-mode-password><span>{svg_checkmark}</span>{translate('Accept sessions via password')}</li>
+            <li #approve-mode-click><span>{svg_checkmark}</span>{translate('Accept sessions via click')}</li>
+            <li #approve-mode-both><span>{svg_checkmark}</span>{translate('Accept sessions via both')}</li>
+            { !show_password ? '' : <div .separator /> }
+            { !show_password ? '' : <li #use-temporary-password><span>{svg_checkmark}</span>{translate('Use one-time password')}</li> }
+            { !show_password ? '' : <li #use-permanent-password><span>{svg_checkmark}</span>{translate('Use permanent password')}</li> }
+            { !show_password ? '' : <li #use-both-passwords><span>{svg_checkmark}</span>{translate('Use both passwords')}</li> }
+            { !show_password ? '' : <div .separator /> }
+            { !show_password || disable_change_permanent_password ? '' : <li #set-password  disabled={ method == 'use-temporary-password' ? "true" : "false" }>{translate('Set permanent password')}</li> }
+            { !show_password ? '' : <TemporaryPasswordLengthMenu /> }
+            <div .separator />
+            <li #tfa><span>{svg_checkmark}</span>{translate('enable-2fa-title')}</li>
+        </menu></popup>;
+    }
+
+    function toggleMenuState() {
+         var mode= handler.get_option('approve-mode');
+        var mode_id;
+        if (mode == 'password')
+            mode_id = 'approve-mode-password';
+        else if (mode == 'click')
+            mode_id = 'approve-mode-click';
+        else
+            mode_id = 'approve-mode-both';
+        var pwd_id = handler.get_option('verification-method');
+        if (pwd_id != 'use-temporary-password' && pwd_id != 'use-permanent-password')
+            pwd_id = 'use-both-passwords';
+        var has_valid_2fa = handler.has_valid_2fa();
+        for (var el in this.$$(menu#edit-password-context>li)) {
+            if (el.id.indexOf("approve-mode-") == 0) {
+                el.attributes.toggleClass("selected", el.id == mode_id);
+                if (handler.is_option_fixed('approve-mode')) {
+                    el.state.disabled = true;
+                }
+            }
+            if (el.id.indexOf("use-") == 0) {
+                el.attributes.toggleClass("selected", el.id == pwd_id);
+                if (handler.is_option_fixed('verification-method')) {
+                    el.state.disabled = true;
+                }
+            }
+            if (el.id == "tfa")
+                el.attributes.toggleClass("selected", has_valid_2fa);
+        }
+    }
+
+    event click $(svg#edit) (_, me) {
+        var approve_mode= handler.get_option('approve-mode');
+        var show_password = approve_mode != 'click';
+        if(show_password && temporaryPasswordLengthMenu) temporaryPasswordLengthMenu.update({show: true });
+        var menu = $(menu#edit-password-context);        
+        me.popup(menu);
+    }
+
+    event click $(li#set-password) {
+        var me = this;
+        var password = handler.permanent_password();
+        var value_field = password.length == 0 ? "" : "value=" + password;
+        msgbox("custom-password", translate("Set Password"), "<div .form .set-password> \
+            <div><span>" + translate('Password') + ":</span><input|password(password) .outline-focus " + value_field + " /></div> \
+            <div><span>" + translate('Confirmation') + ":</span><input|password(confirmation) " + value_field + " /></div> \
+        </div> \
+        ", "", function(res=null) {
+            if (!res) return;
+            var p0 = (res.password || "").trim();
+            var p1 = (res.confirmation || "").trim();
+            if (p0.length < 6 && p0.length != 0) {
+                return translate("Too short, at least 6 characters.");
+            }
+            if (p0 != p1) {
+                return translate("The confirmation is not identical.");
+            }
+            handler.set_permanent_password(p0);
+            me.update();
+        }, msgbox_default_height, get_msgbox_width());
+    }
+
+    event click $(menu#edit-password-context>li) (_, me) {
+        if (me.state.disabled) return;
+        if (me.id.indexOf('use-') == 0) {
+            handler.set_option('verification-method', me.id);
+            this.toggleMenuState();
+            passwordArea.update();
+        } else if (me.id.indexOf('approve-mode') == 0) {
+            var approve_mode;
+            if (me.id == 'approve-mode-password')
+                approve_mode = 'password';
+            else if (me.id == 'approve-mode-click')
+                approve_mode = 'click';
+            else
+                approve_mode = default_option_approve_mode;
+            handler.set_option('approve-mode', approve_mode);
+            this.toggleMenuState();
+            passwordArea.update();
+        }
+    }
+
+    event click $(li#tfa) {
+        var me = this;
+        var has_valid_2fa = handler.has_valid_2fa();
+        if (has_valid_2fa) {
+            handler.set_option('2fa', '');
+            me.update();
+        } else {
+            var new2fa = handler.generate2fa();
+            var src = handler.generate_2fa_img_src(new2fa);
+            msgbox("custom-2fa-setting", translate('enable-2fa-title'),
+                <div .form>
+                    <div>{translate('enable-2fa-desc')}</div>
+                    <img src={src} />
+                    <div .code><input name='code' type='text' .outline-focus /></div>
+                </div>
+                , "", function(res=null) {
+                if (!res) return;
+                if (!res.code) return;
+                if (!handler.verify2fa(res.code)) {
+                    return translate('wrong-2fa-code');
+                }
+                me.update();
+            }, 400, get_msgbox_width());
+        }
+    }
+}
+
+var password_cache = ["","","",""];
+function updatePasswordArea() {
+    self.timer(1s, function() {
+        var temporary_password = handler.temporary_password();
+        var verification_method = handler.get_option('verification-method');
+        var temporary_password_length = handler.get_option('temporary-password-length');
+        var approve_mode = handler.get_option('approve-mode');
+        var update = false;
+        if (password_cache[0] != temporary_password) {
+            password_cache[0] = temporary_password;
+            update = true;
+        }
+        if (password_cache[1] != verification_method) {
+            password_cache[1] = verification_method;
+            update = true;
+        }
+        if (password_cache[2] != temporary_password_length) {
+            password_cache[2] = temporary_password_length;
+            update = true;
+        }
+        if (password_cache[3] != approve_mode) {
+            password_cache[3] = approve_mode;
+            update = true;
+        }
+        if (update && passwordArea) passwordArea.update();
+        updatePasswordArea();
+    });                          
+}
+if (!outgoing_only) updatePasswordArea();
+
+class ID: Reactor.Component {
+    function render() {
+        return <input type="text" #remote_id .outline-focus novalue={translate("Enter Remote ID")}
+        value={formatId(handler.get_remote_id())} />;
+    }
+
+    // https://github.com/c-smile/sciter-sdk/blob/master/doc/content/sciter/Event.htm
+    event change {
+        var fid = formatId(this.value);
+        var d = this.value.length - (this.old_value || "").length;
+        this.old_value = this.value;
+        var start = this.xcall(#selectionStart) || 0;
+        var end = this.xcall(#selectionEnd);
+        if (fid == this.value || d <= 0 || start != end) {
+            return;
+        }
+        // fix Caret position
+        this.value = fid;
+        var text_after_caret = this.old_value.substr(start);
+        var n = fid.length - formatId(text_after_caret).length;
+        this.xcall(#setSelection, n, n);
+    }
+}
+
+var reg = /^\d+$/;
+function formatId(id) {
+    id = id.replace(/\s/g, "");
+    if (reg.test(id) && id.length > 3) {
+        var n = id.length;
+        var a = n % 3 || 3;
+        var new_id = id.substr(0, a);
+        for (var i = a; i < n; i += 3) {
+            new_id += " " + id.substr(i, 3);
+        }
+        return new_id;
+    }
+    return id;
+}
+
+event keydown (evt) {
+    if (view.focus && view.focus.id != 'remote_id') {
+        return;
+    }
+    if (!evt.shortcutKey) {
+        if (isEnterKey(evt)) {
+            var el = $(button#connect);
+            view.focus = el;
+            el.sendEvent("click");
+            // simulate button click effect, windows does not have this issue
+            el.attributes.toggleClass("active", true);
+            self.timer(0.3s, function() {
+                el.attributes.toggleClass("active", false);
+            });
+        }
+    }
+}
+
+$(body).content(<div style="size:*"><App /><div #msgbox /></div>);
+
+event click $(#powered-by) {
+    handler.open_url("https://rustdesk.com");
+}
+
+event click $(#open-settings) (_, me) {
+    showSettings();
+}
+
+// Event handlers for outgoing_only mode (when menu items are in main UI, not in MyIdMenu)
+event click $(li#custom-server) (_, me) {
+    if (!outgoing_only) return;
+    open_custom_server_dialog();
+}
+
+event click $(li#whitelist) (_, me) {
+    if (!outgoing_only) return;
+    open_whitelist_dialog();
+}
+
+event click $(li#socks5-server) (_, me) {
+    if (!outgoing_only) return;
+    open_proxy_dialog();
+}
+
+event click $(li#login) (_, me) {
+    if (!outgoing_only) return;
+    login();
+}
+
+function self.closing() {
+    var (x, y, w, h) = view.box(#rectw, #border, #screen);
+    handler.closing(x, y, w, h);
+    return true;
+}
+
+function self.ready() {
+    var r = handler.get_size();
+    if (isReasonableSize(r) && r[2] > 0) {
+        var (sx, sy, sw, sh) = view.screenBox(#workarea, #rectw);
+        if (r[2] >= sw && r[3] >= sh) {
+            self.timer(1ms, function() { view.windowState = View.WINDOW_MAXIMIZED; });
+        } else {
+            view.move(r[0], r[1], incoming_only ? scaleIt(incoming_only_width) : r[2], r[3]);
+        }
+    } else {
+        centerize(scaleIt(incoming_only ? incoming_only_width : 800), scaleIt(incoming_only ? 390 : 600));
+    }
+    if (!handler.get_remote_id()) {
+        view.focus = $(#remote_id);
+    }
+    refreshCurrentUser();
+    updateTheme();
+}
+
+function showAbout() {
+    myIdMenu.showAbout();
+}
+
+function showSettings() {
+    if ($(#overlay).style#display == 'block') return;
+    var menu = myIdMenu.$(menu#config-options);
+    var anchor = $(#open-settings);
+    if (!anchor) anchor = myIdMenu.$(svg#menu);
+    // show immediately at button, then update menu state asynchronously
+    anchor.popup(menu);
+    self.timer(1ms, function() {
+        audioInputMenu.update({ show: true });
+        myIdMenu.toggleMenuState();
+        if (direct_server) direct_server.update();
+    });
+}
+
+function checkConnectStatus() {
+    handler.check_mouse_time(); // trigger connection status updater
+    self.timer(1s, function() {
+        var tmp = handler.get_option("stop-service") == "Y";
+        if (tmp != service_stopped) {
+            service_stopped = tmp;
+            app.update();
+        }
+        tmp = handler.using_public_server();
+        if (tmp != using_public_server) {
+            using_public_server = tmp;
+            app.connect_status.update();
+        }
+        tmp = handler.get_connect_status();
+        if (tmp[0] != connect_status) {
+            connect_status = tmp[0];
+            app.connect_status.update();
+            myIdMenu.update();
+        }
+        if (tmp[1] != key_confirmed) {
+            key_confirmed = tmp[1];
+            app.update();
+        }
+        if (tmp[2] && tmp[2] != my_id) {
+            stdout.println("id updated");
+            app.update();
+        }
+        tmp = handler.get_error();
+        if (system_error != tmp) {
+            system_error = tmp;
+            app.update();
+        }
+        tmp = handler.get_software_update_url();
+        if (tmp != software_update_url) {
+            software_update_url = tmp;
+            app.update();
+        }
+        if (handler.recent_sessions_updated()) {
+            stdout.println("recent sessions updated");
+            updateAbPeer();
+            app.update();
+        }
+        if (is_runtime_account_session()) {
+            refresh_runtime_account_session(false, true);
+        }
+        tmp = handler.get_option("disable-udp") == "Y";
+        if (tmp != disable_udp) {
+            disable_udp = tmp;
+            app.update();
+        }
+        check_if_overlay();
+        checkConnectStatus();    
+    });                          
+}                                
+                                 
+var enter = false;               
+function self.onMouse(evt) {     
+    switch(evt.type) {           
+    case Event.MOUSE_ENTER:    
+        enter = true;
+        check_if_overlay();
+        break;
+    case Event.MOUSE_LEAVE:
+        $(#overlay).style#display = 'none';
+        enter = false;
+        break;
+    }
+}
+
+function check_if_overlay() {
+    var enabled;
+    var is_enabled_by_control_permissions = handler.is_remote_modify_enabled_by_control_permissions();
+    if (is_enabled_by_control_permissions == "true") {
+        enabled = true;
+    } else if (is_enabled_by_control_permissions == "false") {
+        enabled = false;
+    } else {
+        enabled = handler.get_option('allow-remote-config-modification') == 'Y';
+    }
+    if (!enabled) {
+        var time0 = getTime();
+        handler.check_mouse_time();
+        self.timer(120ms, function() {
+            if (!enter) return;
+            var d = time0 - handler.get_mouse_time();
+            if (d < 120) $(#overlay).style#display = 'block';
+        });
+    }
+}
+
+checkConnectStatus();
+
+function set_local_user_info(user) {
+    var user_info = {name: user.name};
+    if (user.display_name) {
+        user_info.display_name = user.display_name;
+    }
+    if (user.avatar) {
+        user_info.avatar = user.avatar;
+    }
+    if (user.status) {
+        user_info.status = user.status;
+    }
+    handler.set_local_option("user_info", JSON.stringify(user_info));
+}
+
+function normalize_base_url(url) {
+    return (url || '').trim().replace(/\/+$/, '');
+}
+
+function unwrap_api_data(root) {
+    if (root && root.data) {
+        return root.data;
+    }
+    return root || {};
+}
+
+function get_api_error_message(data, fallback="") {
+    var err = "";
+    try {
+        err = (data.error || data.message || data.msg || '').trim();
+    } catch(e) {}
+    return err || fallback || translate('Error');
+}
+
+function get_runtime_bootstrap_base_url() {
+    var url = normalize_base_url(handler.get_local_option("rdx-runtime-bootstrap-base-url"));
+    if (!url) {
+        url = normalize_base_url(handler.get_option("api-server"));
+    }
+    return url;
+}
+
+function is_runtime_account_session() {
+    return (handler.get_local_option("rdx-runtime-account-mode") || '').trim() == "mgmt";
+}
+
+function clear_runtime_assignment_state(clear_active_options=false) {
+    var keys = [
+        "rdx-runtime-service-nodes",
+        "rdx-runtime-auto-select-mode",
+        "rdx-runtime-allow-manual-selection",
+        "rdx-runtime-selected-node-code",
+        "rdx-runtime-selected-node-latency",
+        "rdx-runtime-manual-node-code",
+        "rdx-runtime-selected-node-probe-host",
+        "rdx-runtime-selected-node-relay-server",
+        "rdx-runtime-selected-node-api-server",
+        "rdx-runtime-custom-rendezvous-server",
+        "rdx-runtime-relay-server",
+        "rdx-runtime-api-server",
+        "rdx-runtime-fixed-id-server",
+        "rdx-runtime-fixed-api-server",
+        "rdx-runtime-fixed-public-key",
+        "rdx-runtime-expires-at",
+        "rdx-runtime-assigned-node-codes",
+        "rdx-runtime-client-options",
+        "rdx-runtime-fixed-password",
+        "rdx-runtime-device-enabled",
+        "rdx-runtime-device-owner",
+        "rdx-runtime-tenant-id",
+        "rdx-runtime-tenant-name",
+        "rdx-runtime-tenant-status",
+        "rdx-runtime-billing-state",
+        "rdx-runtime-server-lock-mode",
+        "rdx-runtime-feature-flags"
+    ];
+    for (var i = 0; i < keys.length; ++i) {
+        handler.set_local_option(keys[i], "");
+    }
+}
+
+function clear_runtime_account_state(clear_credentials=false) {
+    clear_runtime_assignment_state(true);
+    handler.set_local_option("rdx-runtime-access-token", "");
+    handler.set_local_option("rdx-runtime-account-mode", "");
+    runtime_control_refresh_at = 0;
+    runtime_control_refresh_inflight = false;
+    if (clear_credentials) {
+        handler.set_local_option("rdx-runtime-username", "");
+        handler.set_local_option("rdx-runtime-password", "");
+        handler.set_local_option("rdx-runtime-package-code", "");
+        handler.set_local_option("rdx-runtime-profile-name", "");
+    }
+}
+
+function apply_runtime_client_options(options) {
+    if (!options) return;
+    if (options.allowClipboard !== undefined) {
+        handler.set_option("enable-clipboard", options.allowClipboard === false ? "N" : default_option_yes);
+    }
+    if (options.allowFileTransfer !== undefined) {
+        handler.set_option("enable-file-transfer", options.allowFileTransfer === false ? "N" : default_option_yes);
+    }
+    if (options.allowKeyboard !== undefined) {
+        handler.set_option("enable-keyboard", options.allowKeyboard === false ? "N" : default_option_yes);
+    }
+}
+
+function apply_runtime_control_payload(payload, updateDeviceState=false) {
+    var data = unwrap_api_data(payload);
+    var serviceNodes = data.serviceNodes || get_runtime_service_nodes();
+    if (!serviceNodes.length) {
+        throw "serviceNodes is empty";
+    }
+
+    var allowManualSelection = data.allowManualSelection !== undefined
+        ? !!data.allowManualSelection
+        : handler.get_local_option("rdx-runtime-allow-manual-selection") == "Y";
+    var autoSelectMode = ((data.autoSelectMode || handler.get_local_option("rdx-runtime-auto-select-mode")) || '').trim();
+    var profileName = ((data.profileName || handler.get_local_option("rdx-runtime-profile-name")) || '').trim();
+    var packageCode = ((data.packageCode || handler.get_local_option("rdx-runtime-package-code")) || '').trim();
+    var expiresAt = ((data.expiresAt || handler.get_local_option("rdx-runtime-expires-at")) || '').trim();
+    var clientOptions = data.clientOptions || data.featureFlags || get_runtime_client_options();
+    var configOptions = handler.get_options();
+    var hosts = [];
+
+    for (var i = 0; i < serviceNodes.length; ++i) {
+        var probeHost = get_runtime_service_node_probe_host(serviceNodes[i]);
+        if (probeHost && hosts.indexOf(probeHost) < 0) hosts.push(probeHost);
+    }
+
+    if (!hosts.length) {
+        throw "No valid node probe host found";
+    }
+
+    handler.set_local_option("rdx-runtime-service-nodes", JSON.stringify(serviceNodes));
+    handler.set_local_option("rdx-runtime-auto-select-mode", autoSelectMode);
+    handler.set_local_option("rdx-runtime-allow-manual-selection", allowManualSelection ? "Y" : "N");
+    handler.set_local_option("rdx-runtime-profile-name", profileName);
+    handler.set_local_option("rdx-runtime-package-code", packageCode);
+    handler.set_local_option("rdx-runtime-expires-at", expiresAt);
+    handler.set_local_option("rdx-runtime-client-options", JSON.stringify(clientOptions));
+    handler.set_local_option("rdx-runtime-feature-flags", JSON.stringify(clientOptions));
+
+    if (data.tenantId !== undefined) {
+        handler.set_local_option("rdx-runtime-tenant-id", (data.tenantId || '').trim());
+    }
+    if (data.tenantName !== undefined) {
+        handler.set_local_option("rdx-runtime-tenant-name", (data.tenantName || '').trim());
+    }
+    if (data.tenantStatus !== undefined) {
+        handler.set_local_option("rdx-runtime-tenant-status", (data.tenantStatus || '').trim());
+    }
+    if (data.billingState !== undefined) {
+        handler.set_local_option("rdx-runtime-billing-state", (data.billingState || '').trim());
+    }
+    if (data.serverLockMode !== undefined) {
+        handler.set_local_option("rdx-runtime-server-lock-mode", (data.serverLockMode || '').trim());
+    }
+
+    apply_runtime_fixed_access_config(data, configOptions);
+
+    if (updateDeviceState) {
+        var fixedPassword = (data.fixedPassword || '').trim();
+        handler.set_local_option("rdx-runtime-fixed-password", fixedPassword);
+        handler.set_local_option("rdx-runtime-device-enabled", data.deviceEnabled === false ? "N" : "Y");
+        handler.set_local_option("rdx-runtime-device-owner", (data.deviceOwner || '').trim());
+        if (fixedPassword) {
+            handler.set_permanent_password(fixedPassword);
+        }
+    }
+
+    configOptions["rendezvous-servers"] = hosts.join(",");
+    handler.set_options(configOptions);
+    apply_runtime_client_options(clientOptions);
+
+    var state = get_runtime_node_state();
+    state.profileName = profileName;
+    var manualNode = allowManualSelection ? find_runtime_service_node(serviceNodes, state.manualCode) : null;
+    if (manualNode && manualNode.manualSelectable === false) {
+        manualNode = null;
+    }
+    var selectedNode = manualNode || choose_runtime_auto_node(serviceNodes, get_service_node_probe_map(), autoSelectMode);
+    if (!selectedNode) {
+        throw "No selectable service node";
+    }
+
+    handler.set_local_option("rdx-runtime-selected-node-latency", "");
+    if (manualNode) {
+        handler.set_local_option("rdx-runtime-manual-node-code", (manualNode.code || "").trim());
+        apply_runtime_service_node(manualNode, state, true);
+    } else {
+        handler.set_local_option("rdx-runtime-manual-node-code", "");
+        apply_runtime_service_node(selectedNode, state, false);
+    }
+    handler.refresh_service_nodes();
+}
+
+function choose_runtime_auto_node(nodes, probeMap=null, autoSelectMode="") {
+    if (!nodes || !nodes.length) return null;
+    probeMap = probeMap || get_service_node_probe_map();
+    var normalizedMode = normalize_runtime_auto_select_mode(autoSelectMode);
+    var latencyBest = null;
+    var bestLatency = 0;
+    for (var i = 0; i < nodes.length; ++i) {
+        var latencyProbe = get_runtime_service_node_probe(nodes[i], probeMap);
+        var latency = get_service_node_latency_value(latencyProbe);
+        if (latencyProbe && latencyProbe.isOnline && latency > 0 && (!latencyBest || latency < bestLatency)) {
+            latencyBest = nodes[i];
+            bestLatency = latency;
+        }
+    }
+    var scoredBest = choose_runtime_scored_node(nodes, probeMap);
+    if (normalizedMode == "score-first") {
+        return scoredBest || latencyBest || nodes[0];
+    }
+    if (latencyBest) {
+        return latencyBest;
+    }
+    return scoredBest || nodes[0];
+}
+
+function apply_runtime_assignment(payload) {
+    apply_runtime_control_payload(payload, true);
+}
+
+function fetch_runtime_assignment(baseUrl, accessToken, onSuccess, onError) {
+    var normalizedBaseUrl = normalize_base_url(baseUrl);
+    httpJsonRequest(
+        normalizedBaseUrl + "/api/client/runtime-assignment",
+        "get",
+        null,
+        function(data) {
+            onSuccess(unwrap_api_data(data));
+        },
+        function(err, status, data) {
+            onError(get_api_error_message(data, err || "Failed to load runtime assignment"), status);
+        },
+        {
+            Authorization: "Bearer " + accessToken,
+            "x-rustdesk-id": my_id,
+            "x-rustdesk-uuid": handler.get_uuid()
+        }
+    );
+}
+
+function fetch_runtime_bootstrap(baseUrl, packageCode, onSuccess, onError) {
+    var normalizedBaseUrl = normalize_base_url(baseUrl);
+    var normalizedPackageCode = (packageCode || '').trim();
+    if (!normalizedPackageCode) {
+        onError("runtime package code is empty", 0);
+        return;
+    }
+    httpJsonRequest(
+        normalizedBaseUrl + "/api/runtime-packages/bootstrap/" + encodeURIComponent(normalizedPackageCode),
+        "get",
+        null,
+        function(data) {
+            onSuccess(unwrap_api_data(data));
+        },
+        function(err, status, data) {
+            onError(get_api_error_message(data, err || "Failed to load runtime bootstrap"), status);
+        }
+    );
+}
+
+function refresh_runtime_control_plane_state(baseUrl, accessToken, packageCode, onSuccess, onError) {
+    var normalizedPackageCode = ((packageCode || handler.get_local_option("rdx-runtime-package-code")) || '').trim();
+    var runAssignment = function() {
+        fetch_runtime_assignment(baseUrl, accessToken, function(runtimeData) {
+            try {
+                apply_runtime_assignment(runtimeData);
+                onSuccess(runtimeData);
+            } catch (e) {
+                onError('' + e, 0);
+            }
+        }, onError);
+    };
+    if (!normalizedPackageCode) {
+        runAssignment();
+        return;
+    }
+    fetch_runtime_bootstrap(baseUrl, normalizedPackageCode, function(bootstrapData) {
+        try {
+            apply_runtime_control_payload(bootstrapData, false);
+        } catch (e) {}
+        runAssignment();
+    }, function(err, status) {
+        runAssignment();
+    });
+}
+
+function refresh_runtime_account_session(force=false, silent=false) {
+    var token = handler.get_local_option("access_token");
+    var runtimeUrl = get_runtime_bootstrap_base_url();
+    if (!is_runtime_account_session() || !token || !runtimeUrl) {
+        return;
+    }
+    var now = getTime();
+    if (!force && runtime_control_refresh_inflight) {
+        return;
+    }
+    if (!force && runtime_control_refresh_at && now - runtime_control_refresh_at < RUNTIME_CONTROL_REFRESH_INTERVAL_MS) {
+        return;
+    }
+    runtime_control_refresh_inflight = true;
+    runtime_control_refresh_at = now;
+    if (!silent) {
+        abLoading = true;
+        abError = "";
+        app.update();
+    }
+    refresh_runtime_control_plane_state(runtimeUrl, token, handler.get_local_option("rdx-runtime-package-code"), function(data) {
+        runtime_control_refresh_inflight = false;
+        abLoading = false;
+        abError = "";
+        myIdMenu.update();
+        app.update();
+    }, function(err, status) {
+        runtime_control_refresh_inflight = false;
+        abLoading = false;
+        if (status == 401 || status == 400 || status == 403) {
+            clear_runtime_account_state(true);
+            reset_token();
+            return;
+        }
+        if (!silent) {
+            handleAbError(err);
+        }
+    });
+}
+
+function apply_runtime_login_result(payload, username, password, show_progress) {
+    clear_runtime_assignment_state(true);
+    var data = unwrap_api_data(payload);
+    var accessToken = ((data.accessToken || data.access_token) || '').trim();
+    var bootstrapBaseUrl = normalize_base_url((data.bootstrapBaseUrl || data.runtimeBootstrapBaseUrl || data.configUrl || get_runtime_bootstrap_base_url()) || '');
+    var profileName = (data.profileName || data.runtimeProfileName || '').trim();
+    var packageCode = (data.packageCode || data.runtimePackageCode || data.assignedPackageCode || '').trim();
+    var loginName = (data.userName || data.username || data.name || username || '').trim();
+
+    if (!accessToken) {
+        throw "accessToken is empty";
+    }
+    if (!bootstrapBaseUrl) {
+        throw "bootstrapBaseUrl is empty";
+    }
+
+    handler.set_local_option("access_token", accessToken);
+    handler.set_local_option("rdx-runtime-access-token", accessToken);
+    handler.set_local_option("rdx-runtime-username", username);
+    handler.set_local_option("rdx-runtime-password", password);
+    handler.set_local_option("rdx-runtime-package-code", packageCode);
+    handler.set_local_option("rdx-runtime-profile-name", profileName);
+    handler.set_local_option("rdx-runtime-bootstrap-base-url", bootstrapBaseUrl);
+    handler.set_local_option("rdx-runtime-account-mode", "mgmt");
+    handler.set_local_option("selected-tags", "");
+    set_local_user_info({
+        name: loginName || username,
+        display_name: loginName || username
+    });
+    myIdMenu.update();
+    resetAb();
+    if (abComponent) {
+        abComponent.update();
+    }
+
+    refresh_runtime_control_plane_state(bootstrapBaseUrl, accessToken, packageCode, function(runtimeData) {
+        try {
+            abLoading = false;
+            abError = "";
+            show_progress(-1);
+            myIdMenu.update();
+            if (app) {
+                app.update();
+            }
+        } catch (e) {
+            abLoading = false;
+            show_progress(false, '' + e);
+        }
+    }, function(err, status) {
+        abLoading = false;
+        show_progress(false, err);
+    });
+}
+
+function login() {
+    var name0 = getUserName();
+    var pass0 = '';
+    var runtimeLoginTs = is_runtime_account_session() || !!handler.get_local_option("rdx-runtime-bootstrap-base-url")
+        ? { checked: true }
+        : {};
+    msgbox("custom-login", translate('Login'), <div .form .set-password> 
+            <div><span>{translate('Username')}:</span><input|text name="username" value={name0} .outline-focus /></div> 
+            <div><span>{translate('Password')}:</span><PasswordComponent value={pass0} /></div> 
+            <div><button|checkbox(runtime_login) {runtimeLoginTs}>Use Control Console</button></div>
+        </div>, "", function(res=null, show_progress) {
+        if (!res) return;
+        show_progress();
+        var name = (res.username || '').trim();
+        if (!name) {
+            show_progress(false, translate("Username missed"));
+            return " ";
+        }
+        var pass = (res.password || '').trim();
+        if (!pass) {
+            show_progress(false, translate("Password missed"));
+            return " ";
+        }
+        abLoading = true;
+        var useRuntimeLogin = !!res.runtime_login || is_runtime_account_session();
+        if (useRuntimeLogin) {
+            var runtimeUrl = get_runtime_bootstrap_base_url();
+            if (!runtimeUrl) {
+                abLoading = false;
+                show_progress(false, "Set API Server to the control console URL first");
+                return " ";
+            }
+            httpJsonRequest(runtimeUrl + "/api/client/auth/login", "post", {
+                username: name,
+                password: pass,
+                deviceId: my_id,
+                deviceUuid: handler.get_uuid()
+            }, function(data) {
+                try {
+                    apply_runtime_login_result(data, name, pass, show_progress);
+                } catch (e) {
+                    abLoading = false;
+                    show_progress(false, '' + e);
+                }
+            }, function(err, status, data) {
+                abLoading = false;
+                show_progress(false, get_api_error_message(data, err || translate('Login failed')));
+            });
+            return " ";
+        }
+        var url = handler.get_api_server();
+        httpRequest(url + "/api/login", #post, {username: name, password: pass, id: my_id, uuid: handler.get_uuid(), type: 'account', deviceInfo: getDeviceInfo()}, function(data) {
+            if (data.error) {
+                abLoading = false;
+                var err = translate(data.error);
+                show_progress(false, err);
+                return;
+            }
+            if (data.type == 'email_check') {
+                abLoading = false;
+                show_progress(-1);
+                on_2fa_check(data);
+                return;
+            }
+            handler.set_local_option("access_token", data.access_token);
+            set_local_user_info(data.user);
+            show_progress(-1);
+            myIdMenu.update();
+            getAb();
+        }, function(err, status) {
+            abLoading = false;
+            err = translate(err);
+            if (url.indexOf('rustdesk') < 0) err = url + ', ' + err;
+            show_progress(false, err);
+        });
+        return " ";
+      }, msgbox_default_height, get_msgbox_width());
+}
+
+function on_2fa_check(last_msg) {
+    const isEmailCheck = !last_msg.tfa_type || last_msg.tfa_type == 'email_check';
+    const secret = last_msg.secret;
+    const emailHint = last_msg.user.email;
+
+    msgbox("custom-2fa-verification-code", translate('Verification code'), <div .form .set-password> 
+            { isEmailCheck && <div><span>{translate('Email')}:</span><span>{emailHint}</span></div> }
+            <div><span>{translate(isEmailCheck ? 'Verification code' : '2FA code')}:</span><input|text name="verification_code" .outline-focus /></div> 
+            { isEmailCheck && <div style="font-size:0.9em; margin-bottom:1em;">{translate('verification_tip')}</div> }
+        </div>, "", 
+        function(res=null, show_progress) {
+            if (!res) return;
+            show_progress();
+            var code = (res.verification_code || '').trim();
+            if (!code || code.length < 6) {
+                show_progress(false, translate("Too short, at least 6 characters."));
+                return " ";
+            }
+            abLoading = true;
+            var url = handler.get_api_server();
+            const loginData = {
+                username: last_msg.user.name,
+                id: my_id,
+                uuid: handler.get_uuid(),
+                type: 'email_code',
+                verificationCode: code,
+                tfaCode: isEmailCheck ? '' : code,
+                secret: secret,
+                deviceInfo: getDeviceInfo()
+            };
+            httpRequest(url + "/api/login", #post, loginData, 
+                function(data) {
+                    if (data.error) {
+                        abLoading = false;
+                        show_progress(false, data.error);
+                        return;
+                    }
+                    handler.set_local_option("access_token", data.access_token);
+                    set_local_user_info(data.user);
+                    show_progress(-1);
+                    myIdMenu.update();
+                    getAb();
+                },
+                function(err, status) {
+                    abLoading = false;
+                    err = translate(err);
+                    if (url.indexOf('rustdesk') < 0) err = url + ', ' + err;
+                    show_progress(false, err);
+                }
+            );
+            return " ";
+        },
+        msgbox_default_height,
+        get_msgbox_width()
+    );
+}
+
+function reset_token() {
+    handler.set_local_option("access_token", "");
+    handler.set_local_option("user_info", "");
+    handler.set_local_option("selected-tags", "");
+    myIdMenu.update();
+    resetAb();
+    if (abComponent) {
+        abComponent.update();
+    }
+}
+
+function logout() {
+    if (is_runtime_account_session()) {
+        clear_runtime_account_state(true);
+        reset_token();
+        return;
+    }
+    var url = handler.get_api_server();
+    httpRequest(url + "/api/logout", #post, {id: my_id, uuid: handler.get_uuid()}, function(data) {
+    }, function(err, status) {
+        msgbox("custom-error", translate('Error'), err);
+    }, getHttpHeaders());
+    reset_token();
+}
+
+function refreshCurrentUser() {
+    if (is_runtime_account_session()) {
+        refresh_runtime_account_session(true, false);
+        return;
+    }
+    var token = handler.get_local_option("access_token");
+    if (!token) { return; }
+    abLoading = true;
+    abError = "";
+    app.update();
+    httpRequest(handler.get_api_server() + "/api/currentUser", #post, {id: my_id, uuid: handler.get_uuid()}, function(data) {
+        if (data.error) {
+            if (data.error == 'Invalid token') {
+              reset_token();
+            }
+            handleAbError(data.error);
+            return;
+        }
+	if (!handler.verify_login(data.verifier, token)) {
+          handleAbError("Please update your self-hosting server Pro to latest version");
+          return;
+        }
+        set_local_user_info(data);
+        myIdMenu.update();
+        getAb();
+    }, function(err, status) {
+        if (status == 401 || status == 400) {
+            reset_token();
+        }
+        handleAbError(err);
+    }, getHttpHeaders());
+} 
+
+function getHttpHeaders() {
+    return "Authorization: Bearer " + handler.get_local_option("access_token");
+}
+
+function getDeviceInfo() {
+    return JSON.parse(handler.get_login_device_info());
+}
