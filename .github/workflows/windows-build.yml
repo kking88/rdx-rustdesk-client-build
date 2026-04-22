@@ -13,9 +13,6 @@ env:
   VERSION: "1.4.6"
 
 jobs:
-  generate-bridge:
-    uses: rustdesk/rustdesk/.github/workflows/bridge.yml@9f817714fe76d40604c46832c96e6f741a549818
-
   build-topmostwindow:
     uses: rustdesk/rustdesk/.github/workflows/third-party-RustDeskTempTopMostWindow.yml@9f817714fe76d40604c46832c96e6f741a549818
     with:
@@ -27,7 +24,7 @@ jobs:
 
   build-windows:
     name: windows-x86_64
-    needs: [generate-bridge, build-topmostwindow]
+    needs: [build-topmostwindow]
     runs-on: windows-2022
     steps:
       - name: Checkout builder repo
@@ -47,12 +44,6 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item -Path builder\overlay\* -Destination src -Recurse -Force
-
-      - name: Restore bridge files
-        uses: actions/download-artifact@v4
-        with:
-          name: bridge-artifact
-          path: src
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
