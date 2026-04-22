@@ -1,0 +1,192 @@
+name: Build RDX Windows Client
+
+on:
+  workflow_dispatch:
+
+env:
+  RUSTDESK_REF: "9f817714fe76d40604c46832c96e6f741a549818"
+  SCITER_RUST_VERSION: "1.75"
+  FLUTTER_VERSION: "3.24.5"
+  LLVM_VERSION: "15.0.6"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VERSION: "1.4.6"
+
+jobs:
+  generate-bridge:
+    uses: rustdesk/rustdesk/.github/workflows/bridge.yml@9f817714fe76d40604c46832c96e6f741a549818
+
+  build-topmostwindow:
+    uses: rustdesk/rustdesk/.github/workflows/third-party-RustDeskTempTopMostWindow.yml@9f817714fe76d40604c46832c96e6f741a549818
+    with:
+      upload-artifact: true
+      target: windows-2022
+      configuration: Release
+      platform: x64
+      target_version: Windows10
+
+  build-windows:
+    name: windows-x86_64
+    needs: [generate-bridge, build-topmostwindow]
+    runs-on: windows-2022
+    steps:
+      - name: Checkout builder repo
+        uses: actions/checkout@v4
+        with:
+          path: builder
+
+      - name: Checkout RustDesk source
+        uses: actions/checkout@v4
+        with:
+          repository: rustdesk/rustdesk
+          ref: ${{ env.RUSTDESK_REF }}
+          submodules: recursive
+          path: src
+
+      - name: Overlay RDX client patches
+        shell: pwsh
+        run: |
+          Copy-Item -Path builder\overlay\* -Destination src -Recurse -Force
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@v4
+        with:
+          name: bridge-artifact
+          path: src
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2.12.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Replace engine with RustDesk custom flutter engine
+        shell: pwsh
+        run: |
+          flutter doctor -v
+          flutter precache --windows
+          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
+          Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
+          Move-Item -Force windows-x64-release\* C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
+
+      - name: Patch Flutter
+        shell: bash
+        run: |
+          cp src/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
+          cd $(dirname $(dirname $(which flutter)))
+          git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.SCITER_RUST_VERSION }}
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: windows-2022
+          workspaces: src
+
+      - name: Setup vcpkg with GitHub Actions binary cache
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: C:\vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install vcpkg dependencies
+        shell: bash
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+        working-directory: src
+        run: |
+          if ! $VCPKG_ROOT/vcpkg \
+            install \
+            --triplet x64-windows-static \
+            --x-install-root="$VCPKG_ROOT/installed"; then
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r f; do
+              echo "$f:"
+              echo "======"
+              cat "$f"
+              echo "======"
+            done
+            exit 1
+          fi
+
+      - name: Build RustDesk Windows client
+        shell: pwsh
+        working-directory: src
+        run: |
+          python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
+          Move-Item -Force .\flutter\build\windows\x64\runner\Release .\rustdesk
+
+          Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
+          Expand-Archive usbmmidd_v2.zip -DestinationPath .
+          Remove-Item -Path usbmmidd_v2\Win32 -Recurse
+          Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
+          Move-Item -Force .\usbmmidd_v2 .\rustdesk
+
+          try {
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
+
+            $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
+            $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
+            $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter\.zip$').Matches.Groups[1].Value
+            $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
+            if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
+              Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
+              New-Item -ItemType Directory -Force -Path .\rustdesk\drivers | Out-Null
+              Move-Item -Force .\rustdesk_printer_driver_v4-1.4 .\rustdesk\drivers\RustDeskPrinterDriver
+              Expand-Archive printer_driver_adapter.zip -DestinationPath .
+              Move-Item -Force .\printer_driver_adapter.dll .\rustdesk
+            }
+          } catch {
+            Write-Host "Ignore printer driver download failure."
+          }
+
+      - name: Find Runner.res
+        shell: bash
+        working-directory: src
+        run: |
+          runner_res=$(find . -name "Runner.res" | head -n 1)
+          if [ -n "$runner_res" ]; then
+            cp "$runner_res" ./libs/portable/Runner.res
+          fi
+
+      - name: Download RustDeskTempTopMostWindow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: topmostwindow-artifacts
+          path: src/rustdesk
+
+      - name: Build portable EXE
+        shell: bash
+        working-directory: src
+        run: |
+          sed -i '/dpiAware/d' res/manifest.xml
+          pushd ./libs/portable
+          pip3 install -r requirements.txt
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          popd
+          mkdir -p ./SignOutput
+          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
+
+      - name: Upload Windows folder artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-windows-folder
+          path: src/rustdesk
+
+      - name: Upload Windows EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-windows-exe
+          path: src/SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
