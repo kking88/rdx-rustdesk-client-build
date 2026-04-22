@@ -1,0 +1,928 @@
+html {
+    background-color: transparent;
+}
+
+body {
+    overflow: hidden;
+}
+
+@media platform != "OSX" {
+    body {
+        border-top: color(border) solid 1px;
+    }
+}
+
+.title {
+    font-size: 1.4em;
+}
+
+.app {
+    flow: horizontal;
+    size: *;
+}
+
+.lighter-text {
+    color: color(lighter-text);
+    font-size: 0.9em;
+}
+
+.left-pane {
+    width: 200px;
+    height: *;
+    background: color(bg);
+    border-right: color(border) 1px solid;
+    position: relative;
+}
+
+#ab .left-pane {
+    border-radius: 1em;
+    padding: 1em;
+}
+
+#ab .right-pane {
+    background: none;
+}
+
+#ab .right-content {
+    overflow: unset;
+}
+
+.left-pane > div:nth-child(1) {
+    border-spacing: 1em;
+    padding: 20px;
+    padding-bottom: 60px; /* reserve space for bottom connect-status */
+}
+
+.left-pane > div.connect-status {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+.left-pane div {
+  word-wrap: break-word;
+}
+
+div.sessions-bar {
+    color: color(light-text);
+    padding-top: 0.5em;
+    border-top: color(border) solid 1px;
+    margin-bottom: 1em;
+    position: relative;
+    flow: horizontal;
+}
+
+div.sessions-tab span {
+    display: inline-block;
+    padding: 6px 8px;
+    cursor: pointer;
+    @ELLIPSIS;
+}
+
+div.sessions-tab svg {
+    size: 14px;
+}
+
+div.sessions-tab span.active {
+    cursor: default;
+    border-radius: 3px;
+    background: color(bg);
+    color: color(text);
+}
+
+div.search-id {
+    width: 120px;
+    padding: 0;
+    position: relative;
+    display: inline-block;
+}
+
+div.search-id input {
+    font-size: 1em;
+    height: 20px;
+    border: none;
+    padding-left: 26px;
+}
+
+div.search-id span {
+    position: absolute;
+    top: 0px;
+    padding: 6px;
+    color: color(border);
+}
+
+div.search-id svg {
+    size: 14px;
+}
+
+span.search-icon {
+    left: 0px;
+}
+
+span.clear-input {
+    display: none;
+    right: 0px;
+}
+
+div.search-id:hover span.clear-input {
+    display: inline-block;
+}
+
+span.clear-input:hover {
+    color: black;
+}
+
+.your-desktop {
+    border-spacing: 0.5em;
+    border-left: color(accent) solid 2px;
+    padding-left: 0.5em;
+}
+
+.your-desktop input[type=text] {
+    padding: 0;
+    border: none;
+    height: 1.5em;
+}
+
+.your-desktop > div {
+    color: color(light-text);
+}
+
+.right-pane {
+    size: *;
+    background: color(gray-bg);
+}
+
+.right-content {
+    overflow: scroll-indicator;
+    padding: 1.6em;
+    border-spacing: 1.6em;
+    size: *;
+    flow: vertical;
+}
+
+@media platform == "OSX" {
+    .right-pane {
+        background: color(gray-bg-osx);
+    }
+}
+
+@mixin CARD {
+    padding: 1.6em;
+    border-spacing: 1em;
+    background: color(bg);
+    border-radius: 1em;
+}
+
+.card-connect {
+    @CARD;
+    width: 320px;
+}
+
+.right-buttons {
+    text-align: right;
+}
+
+.right-buttons>button {
+    margin-left: 1.6em;
+}
+
+div.connect-status {
+    left: 240px;
+    border-top: color(border) solid 1px;
+    width: 100%;
+    padding: 1em;
+}
+
+div.connect-status > span.connect-status-icon {
+    border-radius: 4px;
+    width: 8px;
+    height: 8px;
+    display: inline-block;
+    margin-right: 1em;
+}
+
+div.connect-status > span.link {
+  margin-left: 1em;
+  display: inline-block;
+}
+
+span.connect-status-1 {
+    background: #e04f5f;
+}
+
+span.connect-status1 {
+    background: #32bea6;
+}
+
+span.connect-status0 {
+    background: #F5853B;
+}
+
+div.recent-sessions-content {
+    border-spacing: 1em;
+    flow: horizontal-flow;
+}
+
+div.remote-session {
+    border-radius: 1em;
+    height: 140px;
+    width: 220px;
+    padding: 0;
+    position: relative;
+    border: none;
+}
+
+div.remote-session:hover, div.remote-session-list:hover {
+    outline: color(button) solid 2px -2px;
+}
+
+div.remote-session .platform {
+    width: *;
+    height: 120px;
+    padding: *;
+    position: relative;
+}
+
+div.remote-session .platform .username{
+    left: 0;
+    color: #eee;
+    position: absolute;
+    bottom: 38px;
+    font-size: 0.8em;
+    width: 220px;
+    text-align: center;
+}
+
+div.remote-session .platform svg {
+    width: 60px;
+    height: 60px;
+    background: none;
+}
+
+div.remote-session-list {
+    background: color(bg);
+    width: 220px;
+    flow: horizontal;
+}
+
+div.remote-session-list .platform {
+    size: 42px;
+}
+
+div.remote-session-list .platform svg {
+    width: 30px;
+    height: 30px;
+    background: none;
+    padding: 6px;
+}
+
+div.remote-session-list .name {
+    size: *;
+    padding-left: 1em;
+}
+
+div.remote-session-list .name >div {
+    margin-top: *;
+    margin-bottom: *;
+    width: *;
+}
+
+div.remote-session-list .name .username {
+    margin-top: 3px;
+    font-size: 0.8em;
+    color: color(lighter-text);
+}
+
+div.remote-session .text {
+    background: color(bg);
+    position: absolute;
+    height: 3em;
+    width: 100%;
+    border-radius: 0 0 1em 1em;
+    bottom: 0;
+    flow: horizontal;
+}
+
+div.remote-session .text > div {
+    padding-top: 1em;
+    padding-left: 1em;
+    width: *;
+}
+
+svg#menu {
+    size: 1em;
+    background: none;
+    padding: 0.5em;
+    margin: 0.5em;
+    color: color(light-text);
+}
+
+.remote-session-list svg#menu {
+    margin-right: 0;
+}
+
+svg#menu:hover {
+    color: color(text);
+    border-radius: 1em;
+    background: color(gray-bg);
+}
+
+svg#edit:hover {
+    color: color(text);
+}
+
+svg#edit {
+    display: inline-block;
+}
+
+div.install-me, div.trust-me {
+    margin-top: 0.5em;
+    padding: 20px;
+    color: white;
+    background: linear-gradient(left,#e242bc,#f4727c);
+}
+
+div.trust-me > div:nth-child(1),
+div.install-me > div:nth-child(1) {
+    font-size: 1.2em;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 0.5em;
+}
+
+div.install-me > div:nth-child(2) {
+    line-height: 1.4em;
+}
+
+#install-me.link {
+    margin-top: 0.5em;
+}
+
+div.trust-me > div:nth-child(2) {
+    font-size: 0.9em;
+    margin-bottom: 1em;
+}
+
+div.install-me > div:nth-child(3),
+div.trust-me > div:nth-child(3) {
+    text-align: center;
+    font-size: 1.5em;
+    font-weight: bold;
+}
+
+div.trust-me > div:nth-child(4),
+div.trust-me > div:nth-child(5) {
+    margin-top: 0.5em;
+    text-align: center;
+}
+
+div#myid, div#tags-label {
+    position: relative;
+}
+
+div#myid svg#menu, div#tags-label svg#menu {
+    position: absolute;
+    right: -1em;
+}
+
+div#tags-label svg#menu:hover {
+    background-color: #ddd;
+}
+
+div.remote-session svg#menu {
+    position: absolute;
+    right: 0;
+    top: 0;
+}
+
+.install-me .button {
+    height: 2em;
+    line-height: 2em;
+    text-align: center;
+    font-weight: bold;
+    font-size: 1em;
+    margin-top: 1em;
+    border-color: white;
+    border: 1px;
+    background: none;
+    color: white;
+}
+
+svg#refresh-password {
+    display: inline-block;
+    stroke:#ddd;
+}
+
+svg#refresh-password:hover {
+    stroke:color(text);
+}
+
+li:disabled, li:disabled:hover {
+    color: color(lighter-text);
+    background: color(menu);
+    opacity: 0.8;
+}
+
+.grey-text {
+    color: #888 !important;
+}
+
+input.grey-text,
+textarea.grey-text {
+    color: #888 !important;
+}
+
+@media platform == "OSX" {
+    div.eye-area > input {
+        font-size: 1em;
+    }
+}
+
+div#msgbox div.service-nodes-overlay {
+    position: absolute;
+    size: *;
+    padding: 24px;
+    background: rgba(10, 20, 34, 0.46);
+}
+
+div#msgbox div.service-nodes-shell {
+    margin: *;
+    width: 720px;
+    max-width: 100%;
+    height: *;
+    max-height: 760px;
+    background: color(bg);
+    color: color(text);
+    border-radius: 24px;
+    overflow: hidden;
+    flow: vertical;
+    box-shadow: 0 28px 80px rgba(18, 44, 82, 0.24);
+}
+
+div#msgbox div.service-nodes-header {
+    flow: horizontal;
+    border-spacing: 16px;
+    padding: 24px 24px 20px 24px;
+    background: linear-gradient(left, #f1f7ff, #ffffff);
+    border-bottom: color(border) solid 1px;
+}
+
+div#msgbox div.service-nodes-brand {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    background: linear-gradient(left, #1f7dff, #4aa3ff);
+    color: white;
+    padding: 12px;
+}
+
+div#msgbox div.service-nodes-brand svg {
+    size: *;
+    stroke: currentColor;
+}
+
+div#msgbox div.service-nodes-heading {
+    width: *;
+    flow: vertical;
+    border-spacing: 4px;
+}
+
+div#msgbox div.service-nodes-eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #4c86d8;
+}
+
+div#msgbox div.service-nodes-title {
+    font-size: 25px;
+    font-weight: 700;
+}
+
+div#msgbox div.service-nodes-subtitle {
+    color: color(light-text);
+    font-size: 13px;
+}
+
+div#msgbox button.service-nodes-icon-btn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    padding: 8px;
+    border: color(border) solid 1px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.86);
+    color: #4d5d78;
+}
+
+div#msgbox button.service-nodes-icon-btn:hover {
+    border-color: #9fbedf;
+    background: white;
+}
+
+div#msgbox button.service-nodes-icon-btn svg {
+    size: *;
+    stroke: currentColor;
+}
+
+div#msgbox div.service-nodes-current-banner {
+    flow: horizontal;
+    border-spacing: 16px;
+    margin: 18px 24px 0 24px;
+    padding: 18px 20px;
+    border-radius: 18px;
+    background: #f6f8fb;
+    border: #e8edf4 solid 1px;
+}
+
+div#msgbox div.service-nodes-current-copy {
+    width: *;
+    flow: vertical;
+    border-spacing: 4px;
+}
+
+div#msgbox div.service-nodes-current-label {
+    color: color(light-text);
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+div#msgbox div.service-nodes-current-title {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+div#msgbox div.service-nodes-current-meta {
+    color: color(light-text);
+    font-size: 13px;
+}
+
+div#msgbox div.service-nodes-current-side {
+    flow: vertical;
+    border-spacing: 8px;
+    width: 124px;
+}
+
+div#msgbox div.service-nodes-current-latency,
+div#msgbox div.service-nodes-current-mode {
+    padding: 8px 12px;
+    border-radius: 999px;
+    text-align: center;
+    font-weight: 700;
+}
+
+div#msgbox div.service-nodes-current-latency {
+    background: #fff;
+    color: #1768e2;
+    border: #d7e5ff solid 1px;
+}
+
+div#msgbox div.service-nodes-current-mode {
+    background: #12274a;
+    color: white;
+}
+
+div#msgbox div.service-nodes-info-banner,
+div#msgbox div.service-nodes-notice {
+    flow: horizontal;
+    border-spacing: 12px;
+    margin: 14px 24px 0 24px;
+    padding: 14px 16px;
+    border-radius: 16px;
+}
+
+div#msgbox div.service-nodes-info-banner {
+    background: #eef5ff;
+    border: #dbe8ff solid 1px;
+}
+
+div#msgbox div.service-nodes-info-icon {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    color: #2d7eff;
+    margin-top: 1px;
+}
+
+div#msgbox div.service-nodes-info-icon svg {
+    size: *;
+    stroke: currentColor;
+}
+
+div#msgbox div.service-nodes-info-copy {
+    width: *;
+    flow: vertical;
+    border-spacing: 3px;
+}
+
+div#msgbox div.service-nodes-info-title {
+    font-weight: 700;
+}
+
+div#msgbox div.service-nodes-info-text {
+    color: color(light-text);
+    font-size: 13px;
+}
+
+div#msgbox div.service-nodes-notice {
+    border: transparent solid 1px;
+}
+
+div#msgbox div.service-nodes-notice.info {
+    background: #eff6ff;
+    border-color: #d9e7ff;
+    color: #1f5fcc;
+}
+
+div#msgbox div.service-nodes-notice.success {
+    background: #edf9f1;
+    border-color: #d2efd9;
+    color: #1c7a49;
+}
+
+div#msgbox div.service-nodes-notice.error {
+    background: #fff1f1;
+    border-color: #ffd8d8;
+    color: #b63c3c;
+}
+
+div#msgbox div.service-nodes-list {
+    size: *;
+    flow: vertical;
+    border-spacing: 14px;
+    padding: 18px 24px 10px 24px;
+    overflow: scroll-indicator;
+}
+
+div#msgbox div.service-node-card {
+    position: relative;
+    padding: 18px 20px;
+    border-radius: 18px;
+    border: #e6ebf2 solid 1px;
+    background: #ffffff;
+    flow: vertical;
+    border-spacing: 10px;
+    cursor: pointer;
+}
+
+div#msgbox div.service-node-card:hover {
+    border-color: #95bcff;
+    box-shadow: 0 14px 32px rgba(45, 120, 255, 0.12);
+    transform: translateY(-1px);
+}
+
+div#msgbox div.service-node-card.current {
+    border-color: #88b5ff;
+    box-shadow: 0 14px 36px rgba(29, 108, 240, 0.16);
+}
+
+div#msgbox div.service-node-card.recommended {
+    background: linear-gradient(left, #ffffff, #f8fbff);
+}
+
+div#msgbox div.service-node-card.disabled {
+    cursor: default;
+    opacity: 0.82;
+}
+
+div#msgbox div.service-node-card.disabled:hover {
+    border-color: #e6ebf2;
+    box-shadow: none;
+    transform: none;
+}
+
+div#msgbox div.service-node-card-head {
+    flow: horizontal;
+    border-spacing: 12px;
+}
+
+div#msgbox div.service-node-card-main {
+    width: *;
+    flow: vertical;
+    border-spacing: 4px;
+    padding-right: 32px;
+}
+
+div#msgbox div.service-node-card-title {
+    font-size: 19px;
+    font-weight: 700;
+}
+
+div#msgbox div.service-node-card-subtitle {
+    color: color(light-text);
+    font-size: 12px;
+}
+
+div#msgbox div.service-node-card-detail {
+    color: color(light-text);
+    font-size: 13px;
+}
+
+div#msgbox div.service-node-card-latency {
+    min-width: 90px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #135fd1;
+    background: #eef5ff;
+}
+
+div#msgbox div.service-node-card-latency.offline {
+    color: #9a4253;
+    background: #fff0f3;
+}
+
+div#msgbox div.service-node-card-badges {
+    flow: horizontal-flow;
+    border-spacing: 8px;
+}
+
+div#msgbox span.service-node-badge {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #f2f4f7;
+    color: #546174;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+div#msgbox span.service-node-badge.current {
+    background: #edf4ff;
+    color: #1d66d8;
+}
+
+div#msgbox span.service-node-badge.manual {
+    background: #eef9f2;
+    color: #21734a;
+}
+
+div#msgbox span.service-node-badge.recommended {
+    background: #fff7dc;
+    color: #8a6500;
+}
+
+div#msgbox span.service-node-badge.locked {
+    background: #f2f4f7;
+    color: #727d8d;
+}
+
+div#msgbox span.service-node-badge.offline {
+    background: #fff0f1;
+    color: #b54556;
+}
+
+div#msgbox div.service-nodes-empty {
+    padding: 36px 24px;
+    text-align: center;
+    color: color(light-text);
+    background: #f7f8fa;
+    border: #e8edf4 solid 1px;
+    border-radius: 18px;
+}
+
+div#msgbox div.service-nodes-footer {
+    flow: horizontal;
+    border-spacing: 12px;
+    padding: 18px 24px 24px 24px;
+    border-top: color(border) solid 1px;
+}
+
+div#msgbox div.service-nodes-footer-text {
+    width: *;
+    color: color(light-text);
+    font-size: 13px;
+    margin: auto 0;
+}
+
+div#msgbox div.service-nodes-footer-actions {
+    flow: horizontal;
+    border-spacing: 10px;
+}
+
+div#msgbox button.service-nodes-refresh-btn {
+    flow: horizontal;
+    border-spacing: 8px;
+}
+
+div#msgbox span.service-nodes-refresh-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+}
+
+div#msgbox span.service-nodes-refresh-icon svg {
+    size: *;
+    stroke: currentColor;
+}
+
+div#msgbox button.service-nodes-refresh-btn span.service-nodes-refresh-icon svg#refresh-password {
+    stroke: currentColor;
+}
+
+html.darktheme div#msgbox div.service-nodes-overlay {
+    background: rgba(0, 0, 0, 0.62);
+}
+
+html.darktheme div#msgbox div.service-nodes-shell {
+    background: #1c1d20;
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
+}
+
+html.darktheme div#msgbox div.service-nodes-header {
+    background: linear-gradient(left, #232b39, #1c1d20);
+    border-bottom-color: #343844;
+}
+
+html.darktheme div#msgbox button.service-nodes-icon-btn {
+    background: rgba(40, 44, 53, 0.9);
+    border-color: #3f4553;
+    color: #c8d0df;
+}
+
+html.darktheme div#msgbox div.service-nodes-current-banner {
+    background: #24262b;
+    border-color: #343844;
+}
+
+html.darktheme div#msgbox div.service-nodes-current-latency {
+    background: #18273f;
+    border-color: #244570;
+    color: #7bb0ff;
+}
+
+html.darktheme div#msgbox div.service-nodes-current-mode {
+    background: #0f1726;
+}
+
+html.darktheme div#msgbox div.service-nodes-info-banner {
+    background: #1a2433;
+    border-color: #27374f;
+}
+
+html.darktheme div#msgbox div.service-node-card {
+    background: #222429;
+    border-color: #343844;
+}
+
+html.darktheme div#msgbox div.service-node-card:hover {
+    border-color: #5b8fe2;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
+}
+
+html.darktheme div#msgbox div.service-node-card.current {
+    border-color: #5b8fe2;
+}
+
+html.darktheme div#msgbox div.service-node-card.recommended {
+    background: linear-gradient(left, #222429, #202a37);
+}
+
+html.darktheme div#msgbox div.service-node-card-latency {
+    background: #18273f;
+    color: #7bb0ff;
+}
+
+html.darktheme div#msgbox div.service-node-card-latency.offline {
+    background: #3a2328;
+    color: #ff9dad;
+}
+
+html.darktheme div#msgbox span.service-node-badge {
+    background: #2e3138;
+    color: #c8ced9;
+}
+
+html.darktheme div#msgbox span.service-node-badge.current {
+    background: #1c365d;
+    color: #87b9ff;
+}
+
+html.darktheme div#msgbox span.service-node-badge.manual {
+    background: #203b2d;
+    color: #85ddb0;
+}
+
+html.darktheme div#msgbox span.service-node-badge.recommended {
+    background: #4a3e1d;
+    color: #ffd76d;
+}
+
+html.darktheme div#msgbox span.service-node-badge.offline {
+    background: #46252b;
+    color: #ff9dad;
+}
+
+html.darktheme div#msgbox div.service-nodes-empty {
+    background: #23252a;
+    border-color: #343844;
+}
+
+html.darktheme div#msgbox div.service-nodes-footer {
+    border-top-color: #343844;
+}
